@@ -62,5 +62,12 @@
 	},
 	"keywords": [
 		"svelte"
-	]
+	],
+	"dependencies": {
+		"@convex-dev/better-auth": "^0.12.3",
+		"@mmailaender/convex-better-auth-svelte": "^0.8.0",
+		"convex": "^1.41.0",
+		"convex-svelte": "^0.13.0",
+		"resend": "^6.12.4"
+	}
 }
