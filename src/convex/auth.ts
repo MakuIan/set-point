@@ -1,30 +1,28 @@
-import { betterAuth } from "better-auth";
-import { convexAdapter } from "@convex-dev/better-auth/adapter";
-import { convex } from "@convex-dev/better-auth/plugins";
-import { createClient, type CreateAuth } from "@convex-dev/better-auth";
-import type { GenericCtx } from "@convex-dev/better-auth";
-import type { DataModel } from "./_generated/dataModel";
-import { components } from "./_generated/api";
-import authConfig from "./auth.config";
+import { betterAuth } from 'better-auth';
+import { convex } from '@convex-dev/better-auth/plugins';
+import { createClient, type CreateAuth } from '@convex-dev/better-auth';
+import type { GenericCtx } from '@convex-dev/better-auth';
+import type { DataModel } from './_generated/dataModel.js';
+import { components } from './_generated/api.js';
+import authConfig from './auth.config.js';
 
-export const authComponent = createClient(components.betterAuth);
+export const authComponent = createClient<DataModel>(components.betterAuth);
 
 export const createAuth: CreateAuth<DataModel> = (ctx: GenericCtx<DataModel>) => {
 	return betterAuth({
-		database: convexAdapter(authComponent.adapter(ctx)),
+		database: authComponent.adapter(ctx),
 		baseURL: process.env.CONVEX_SITE_URL,
 		emailAndPassword: {
-			enabled: true,
+			enabled: true
 		},
 		socialProviders: {
 			google: {
 				clientId: process.env.GOOGLE_CLIENT_ID!,
-				clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
-			},
+				clientSecret: process.env.GOOGLE_CLIENT_SECRET!
+			}
 		},
 		trustedOrigins: [process.env.SITE_URL!],
-		plugins: [
-			convex({ authConfig }),
-		],
+		plugins: [convex({ authConfig })]
 	});
 };
+
