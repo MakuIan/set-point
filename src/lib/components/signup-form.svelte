@@ -4,14 +4,15 @@
 		Field,
 		FieldLabel,
 		FieldDescription,
-		FieldSeparator,
-	} from "$lib/components/ui/field/index.js";
-	import { Input } from "$lib/components/ui/input/index.js";
-	import { Button } from "$lib/components/ui/button/index.js";
-	import { cn, type WithElementRef } from "$lib/utils.js";
-	import type { HTMLFormAttributes } from "svelte/elements";
-	import { authClient } from "$lib/auth-client";
-	import { goto } from "$app/navigation";
+		FieldSeparator
+	} from '$lib/components/ui/field/index.js';
+	import { Input } from '$lib/components/ui/input/index.js';
+	import { Button } from '$lib/components/ui/button/index.js';
+	import { cn, type WithElementRef } from '$lib/utils.js';
+	import type { HTMLFormAttributes } from 'svelte/elements';
+	import { authClient } from '$lib/auth-client';
+	import { goto } from '$app/navigation';
+	import { resolve } from '$app/paths';
 
 	let {
 		ref = $bindable(null),
@@ -21,24 +22,24 @@
 
 	const id = $props.id();
 
-	let name = $state("");
-	let email = $state("");
-	let password = $state("");
-	let confirmPassword = $state("");
-	let error = $state("");
+	let name = $state('');
+	let email = $state('');
+	let password = $state('');
+	let confirmPassword = $state('');
+	let error = $state('');
 	let loading = $state(false);
 
 	async function handleSubmit(e: SubmitEvent) {
 		e.preventDefault();
-		error = "";
+		error = '';
 
 		if (password !== confirmPassword) {
-			error = "Passwords do not match.";
+			error = 'Passwords do not match.';
 			return;
 		}
 
 		if (password.length < 8) {
-			error = "Password must be at least 8 characters.";
+			error = 'Password must be at least 8 characters.';
 			return;
 		}
 
@@ -47,27 +48,27 @@
 		const result = await authClient.signUp.email({
 			name,
 			email,
-			password,
+			password
 		});
 
 		if (result.error) {
-			error = result.error.message ?? "Sign up failed. Please try again.";
+			error = result.error.message ?? 'Sign up failed. Please try again.';
 			loading = false;
 		} else {
-			goto("/");
+			goto(resolve('/'));
 		}
 	}
 
 	async function handleGoogleSignUp() {
 		await authClient.signIn.social({
-			provider: "google",
-			callbackURL: "/",
+			provider: 'google',
+			callbackURL: '/'
 		});
 	}
 </script>
 
 <form
-	class={cn("flex flex-col gap-6", className)}
+	class={cn('flex flex-col gap-6', className)}
 	bind:this={ref}
 	{...restProps}
 	onsubmit={handleSubmit}
@@ -81,59 +82,49 @@
 		</div>
 
 		{#if error}
-			<div class="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-950/50 dark:text-red-400">
+			<div
+				class="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-950/50 dark:text-red-400"
+			>
 				{error}
 			</div>
 		{/if}
 
 		<Field>
 			<FieldLabel for="name-{id}">Full Name</FieldLabel>
-			<Input
-				id="name-{id}"
-				type="text"
-				placeholder="John Doe"
-				required
-				bind:value={name}
-			/>
+			<Input id="name-{id}" type="text" placeholder="John Doe" required bind:value={name} />
 		</Field>
 		<Field>
 			<FieldLabel for="email-{id}">Email</FieldLabel>
-			<Input
-				id="email-{id}"
-				type="email"
-				placeholder="m@example.com"
-				required
-				bind:value={email}
-			/>
+			<Input id="email-{id}" type="email" placeholder="m@example.com" required bind:value={email} />
 			<FieldDescription>
 				We'll use this to contact you. We will not share your email with anyone else.
 			</FieldDescription>
 		</Field>
 		<Field>
 			<FieldLabel for="password-{id}">Password</FieldLabel>
-			<Input
-				id="password-{id}"
-				type="password"
-				required
-				bind:value={password}
-			/>
+			<Input id="password-{id}" type="password" required bind:value={password} />
 			<FieldDescription>Must be at least 8 characters long.</FieldDescription>
 		</Field>
 		<Field>
 			<FieldLabel for="confirm-password-{id}">Confirm Password</FieldLabel>
-			<Input
-				id="confirm-password-{id}"
-				type="password"
-				required
-				bind:value={confirmPassword}
-			/>
+			<Input id="confirm-password-{id}" type="password" required bind:value={confirmPassword} />
 		</Field>
 		<Field>
 			<Button type="submit" disabled={loading}>
 				{#if loading}
-					<svg class="mr-2 size-4 animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-						<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-						<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+					<svg
+						class="mr-2 size-4 animate-spin"
+						xmlns="http://www.w3.org/2000/svg"
+						fill="none"
+						viewBox="0 0 24 24"
+					>
+						<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"
+						></circle>
+						<path
+							class="opacity-75"
+							fill="currentColor"
+							d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+						></path>
 					</svg>
 					Creating account...
 				{:else}
@@ -166,7 +157,7 @@
 			</Button>
 			<FieldDescription class="px-6 text-center">
 				Already have an account?
-				<a href="/login" class="underline underline-offset-4">Sign in</a>
+				<a href={resolve('/login')} class="underline underline-offset-4">Sign in</a>
 			</FieldDescription>
 		</Field>
 	</FieldGroup>

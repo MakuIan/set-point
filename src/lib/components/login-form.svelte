@@ -12,6 +12,7 @@
 	import type { HTMLFormAttributes } from 'svelte/elements';
 	import { authClient } from '$lib/auth-client';
 	import { goto } from '$app/navigation';
+	import { resolve } from '$app/paths';
 
 	let {
 		ref = $bindable(null),
@@ -40,7 +41,7 @@
 			error = result.error.message ?? 'Login fehlgeschlagen. Bitte überprüfe deine Eingaben.';
 			loading = false;
 		} else {
-			goto('/');
+			goto(resolve('/'));
 		}
 	}
 
@@ -135,7 +136,7 @@
 			</Button>
 			<FieldDescription class="text-center">
 				Don't have an account?
-				<a href="/signup" class="underline underline-offset-4">Sign up</a>
+				<a href={resolve('/signup')} class="underline underline-offset-4">Sign up</a>
 			</FieldDescription>
 		</Field>
 	</FieldGroup>
