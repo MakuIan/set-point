@@ -11,7 +11,7 @@ export const authComponent = createClient<DataModel>(components.betterAuth);
 export const createAuth: CreateAuth<DataModel> = (ctx: GenericCtx<DataModel>) => {
 	return betterAuth({
 		database: authComponent.adapter(ctx),
-		baseURL: process.env.CONVEX_SITE_URL,
+		baseURL: process.env.SITE_URL,
 		emailAndPassword: {
 			enabled: true
 		},
@@ -25,4 +25,3 @@ export const createAuth: CreateAuth<DataModel> = (ctx: GenericCtx<DataModel>) =>
 		plugins: [convex({ authConfig })]
 	});
 };
-
