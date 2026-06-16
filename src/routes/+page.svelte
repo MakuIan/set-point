@@ -97,6 +97,14 @@
 		}
 	}
 
+	let now = $state(Date.now());
+	$effect(() => {
+		const interval = setInterval(() => {
+			now = Date.now();
+		}, 1000);
+		return () => clearInterval(interval);
+	});
+
 	// Formatting helper
 	function formatDate(timestamp: number) {
 		return new Date(timestamp).toLocaleDateString('en-US', {
@@ -106,6 +114,17 @@
 			hour: '2-digit',
 			minute: '2-digit'
 		});
+	}
+
+	function getRelativeTime(endedAt: number) {
+		const diff = Math.max(0, Math.floor((now - endedAt) / 1000));
+		if (diff < 60) return `${diff}s ago`;
+		const mins = Math.floor(diff / 60);
+		if (mins < 60) return `${mins}m ago`;
+		const hours = Math.floor(mins / 60);
+		if (hours < 24) return `${hours}h ago`;
+		const days = Math.floor(hours / 24);
+		return `${days}d ago`;
 	}
 </script>
 
@@ -212,7 +231,11 @@
 												{session.name}
 											</Item.Title>
 											<p class="text-[10px] text-muted-foreground">
-												{formatDate(session.startedAt)}
+												{#if session.status === 'completed' && (session.timerEndTime || session.endedAt)}
+													Finished {getRelativeTime((session.timerEndTime || session.endedAt) as number)}
+												{:else}
+													Started {formatDate(session.startedAt)}
+												{/if}
 											</p>
 										</div>
 										{#if session.status === 'active'}

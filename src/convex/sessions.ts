@@ -353,9 +353,11 @@ export const updatePlayerState = mutation({
 export const finish = mutation({
 	args: { sessionId: v.id('workoutSessions') },
 	handler: async (ctx, args) => {
+		const now = Date.now();
 		await ctx.db.patch(args.sessionId, {
 			status: 'completed',
-			timerEndTime: Date.now()
+			timerEndTime: now,
+			endedAt: now
 		});
 	}
 });
@@ -365,7 +367,8 @@ export const resume = mutation({
 	handler: async (ctx, args) => {
 		await ctx.db.patch(args.sessionId, {
 			status: 'active',
-			timerEndTime: undefined
+			timerEndTime: null,
+			endedAt: undefined
 		});
 	}
 });

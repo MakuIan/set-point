@@ -94,16 +94,20 @@
 
 	$effect(() => {
 		const sessionData = sessionQuery?.data;
+		console.log("Finished timer effect ran. sessionData:", sessionData);
 		if (sessionData && sessionData.status === 'completed' && sessionData.timerEndTime) {
+			console.log("Conditions met. Starting timer. timerEndTime:", sessionData.timerEndTime);
 			const updateTimer = () => {
 				timeSinceFinished = Math.max(
 					0,
 					Math.floor((Date.now() - sessionData.timerEndTime!) / 1000)
 				);
+				console.log("Timer updated: timeSinceFinished =", timeSinceFinished);
 			};
 			updateTimer();
 			finishedTimerInterval = setInterval(updateTimer, 1000);
 		} else {
+			console.log("Conditions not met. Clearing timer.");
 			timeSinceFinished = 0;
 			if (finishedTimerInterval) {
 				clearInterval(finishedTimerInterval);
@@ -401,15 +405,31 @@
 				{/if}
 			</div>
 
-			{#if sessionQuery.data && sessionQuery.data.status === 'active'}
-				<Button
-					variant="default"
-					size="lg"
-					onclick={handleFinishSession}
-					class="rounded-full shadow-md hover:shadow-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold transition-all"
-				>
-					<Check class="mr-2 size-5" /> Finish Workout
-				</Button>
+			{#if sessionQuery.data}
+				{#if sessionQuery.data.status === 'active'}
+					<Button
+						variant="default"
+						size="lg"
+						onclick={handleFinishSession}
+						class="rounded-full shadow-md hover:shadow-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold transition-all"
+					>
+						<Check class="mr-2 size-5" /> Finish Workout
+					</Button>
+				{:else if sessionQuery.data.status === 'completed'}
+					<div class="flex items-center gap-3">
+						<span class="text-sm font-semibold text-muted-foreground">
+							Finished {formatTime(timeSinceFinished)} ago
+						</span>
+						<Button
+							variant="outline"
+							size="sm"
+							onclick={handleResumeSession}
+							class="rounded-full border-primary/20 hover:bg-primary/5 hover:text-primary transition-all font-bold"
+						>
+							<Play class="mr-1.5 size-4" /> Resume Session
+						</Button>
+					</div>
+				{/if}
 			{/if}
 		</div>
 	</div>
@@ -438,16 +458,14 @@
 			<div class="lg:col-span-2 space-y-4">
 				<div class="flex items-center justify-between mb-2">
 					<h2 class="text-xl font-bold tracking-tight">Session Exercises</h2>
-					{#if session.status === 'active'}
-						<Button
-							variant="outline"
-							size="sm"
-							onclick={openAddExercise}
-							class="rounded-full border-primary/20 hover:bg-primary/5 hover:text-primary transition-all"
-						>
-							<Plus class="mr-1.5 size-4" /> Add Exercise
-						</Button>
-					{/if}
+					<Button
+						variant="outline"
+						size="sm"
+						onclick={openAddExercise}
+						class="rounded-full border-primary/20 hover:bg-primary/5 hover:text-primary transition-all"
+					>
+						<Plus class="mr-1.5 size-4" /> Add Exercise
+					</Button>
 				</div>
 
 				{#if exercises.length === 0}
@@ -467,17 +485,15 @@
 									Add exercises to this workout session to start tracking your sets and rest times.
 								</Empty.Description>
 							</Empty.Header>
-							{#if session.status === 'active'}
-								<Empty.Content class="mt-6">
-									<Button
-										onclick={openAddExercise}
-										size="lg"
-										class="rounded-full shadow-sm hover:shadow-md transition-all"
-									>
-										<Plus class="mr-2 size-5" /> Add First Exercise
-									</Button>
-								</Empty.Content>
-							{/if}
+							<Empty.Content class="mt-6">
+								<Button
+									onclick={openAddExercise}
+									size="lg"
+									class="rounded-full shadow-sm hover:shadow-md transition-all"
+								>
+									<Plus class="mr-2 size-5" /> Add First Exercise
+								</Button>
+							</Empty.Content>
 						</Empty.Root>
 					</div>
 				{:else}
@@ -543,29 +559,27 @@
 												</Card.Title>
 											</div>
 
-											<!-- Edit/Delete Action Controls (If Active Session) -->
-											{#if session.status === 'active'}
-												<div class="flex items-center gap-1">
-													<Button
-														variant="ghost"
-														size="icon-sm"
-														onclick={() => openEditExercise(exercise)}
-														class="hover:bg-primary/10 hover:text-primary rounded-full transition-colors size-7"
-														title="Edit"
-													>
-														<Edit3 class="size-3.5" />
-													</Button>
-													<Button
-														variant="ghost"
-														size="icon-sm"
-														onclick={() => handleDeleteExercise(exercise._id)}
-														class="hover:bg-destructive/10 hover:text-destructive text-muted-foreground rounded-full transition-colors size-7"
-														title="Delete"
-													>
-														<Trash2 class="size-3.5" />
-													</Button>
-												</div>
-											{/if}
+											<!-- Edit/Delete Action Controls -->
+											<div class="flex items-center gap-1">
+												<Button
+													variant="ghost"
+													size="icon-sm"
+													onclick={() => openEditExercise(exercise)}
+													class="hover:bg-primary/10 hover:text-primary rounded-full transition-colors size-7"
+													title="Edit"
+												>
+													<Edit3 class="size-3.5" />
+												</Button>
+												<Button
+													variant="ghost"
+													size="icon-sm"
+													onclick={() => handleDeleteExercise(exercise._id)}
+													class="hover:bg-destructive/10 hover:text-destructive text-muted-foreground rounded-full transition-colors size-7"
+													title="Delete"
+												>
+													<Trash2 class="size-3.5" />
+												</Button>
+											</div>
 										</div>
 
 										<!-- Description Content (Card.Content) -->
