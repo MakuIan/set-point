@@ -349,25 +349,23 @@ export const updatePlayerState = mutation({
 	}
 });
 
-/**
- * Complete the active workout session.
- */
-export const finishSession = mutation({
-	args: {
-		sessionId: v.id('workoutSessions')
-	},
+// Mark the session as finished and record the current timestamp
+export const finish = mutation({
+	args: { sessionId: v.id('workoutSessions') },
 	handler: async (ctx, args) => {
-		const user = await authComponent.getAuthUser(ctx);
-
-		const session = await ctx.db.get(args.sessionId);
-		if (!session || session.userId !== user._id) {
-			throw new Error('Unauthorized or session not found');
-		}
-
 		await ctx.db.patch(args.sessionId, {
 			status: 'completed',
-			endedAt: Date.now(),
-			timerEndTime: null
+			timerEndTime: Date.now()
+		});
+	}
+});
+
+export const resume = mutation({
+	args: { sessionId: v.id('workoutSessions') },
+	handler: async (ctx, args) => {
+		await ctx.db.patch(args.sessionId, {
+			status: 'active',
+			timerEndTime: undefined
 		});
 	}
 });

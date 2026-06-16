@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { page } from '$app/state';
-	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { useQuery, useMutation } from 'convex-svelte';
 	import { api } from '../../../convex/_generated/api.js';
@@ -56,7 +55,8 @@
 	const deleteExerciseMutation = useMutation(api.sessions.deleteExercise);
 	const moveExerciseMutation = useMutation(api.sessions.moveExercise);
 	const updatePlayerStateMutation = useMutation(api.sessions.updatePlayerState);
-	const finishSessionMutation = useMutation(api.sessions.finishSession);
+	const finishSessionMutation = useMutation(api.sessions.finish);
+	const resumeSessionMutation = useMutation(api.sessions.resume);
 
 	// Dialog & Form State
 	let isExerciseDialogOpen = $state(false);
@@ -78,16 +78,55 @@
 
 	// Timer State & Sync
 	let remainingTime = $state(0);
-	let timerInterval = $state<any>(null);
+	let timerInterval: ReturnType<typeof setInterval> | null = null;
+
+	let timeSinceFinished = $state(0);
+	let finishedTimerInterval: ReturnType<typeof setInterval> | null = null;
+
+	function formatTime(seconds: number) {
+		const h = Math.floor(seconds / 3600);
+		const m = Math.floor((seconds % 3600) / 60);
+		const s = seconds % 60;
+		if (h > 0) return `${h}h ${m}m ${s}s`;
+		if (m > 0) return `${m}m ${s}s`;
+		return `${s}s`;
+	}
+
+	$effect(() => {
+		const sessionData = sessionQuery?.data;
+		if (sessionData && sessionData.status === 'completed' && sessionData.timerEndTime) {
+			const updateTimer = () => {
+				timeSinceFinished = Math.max(
+					0,
+					Math.floor((Date.now() - sessionData.timerEndTime!) / 1000)
+				);
+			};
+			updateTimer();
+			finishedTimerInterval = setInterval(updateTimer, 1000);
+		} else {
+			timeSinceFinished = 0;
+			if (finishedTimerInterval) {
+				clearInterval(finishedTimerInterval);
+				finishedTimerInterval = null;
+			}
+		}
+
+		return () => {
+			if (finishedTimerInterval) {
+				clearInterval(finishedTimerInterval);
+				finishedTimerInterval = null;
+			}
+		};
+	});
 
 	// Reactively handle the countdown rest timer
 	$effect(() => {
 		const sessionData = sessionQuery?.data;
-		if (sessionData && sessionData.timerEndTime) {
+		if (sessionData && sessionData.timerEndTime && sessionData.status === 'active') {
 			const updateTimer = () => {
 				const diff = Math.ceil((sessionData.timerEndTime! - Date.now()) / 1000);
 				remainingTime = Math.max(0, diff);
-				if (remainingTime === 0 && timerInterval) {
+				if (diff <= 0 && timerInterval) {
 					clearInterval(timerInterval);
 					timerInterval = null;
 				}
@@ -294,10 +333,19 @@
 		try {
 			await finishSessionMutation({ sessionId: sessionQuery.data._id });
 			isFinishDialogOpen = false;
-			goto(resolve('/'));
 		} catch (err) {
 			console.error(err);
 			alert('Failed to finish workout session.');
+		}
+	}
+
+	async function handleResumeSession() {
+		if (!sessionQuery?.data) return;
+		try {
+			await resumeSessionMutation({ sessionId: sessionQuery.data._id });
+		} catch (err) {
+			console.error(err);
+			alert('Failed to resume workout session.');
 		}
 	}
 </script>
@@ -327,7 +375,9 @@
 						<h1
 							class="text-2xl sm:text-3xl font-extrabold tracking-tight bg-linear-to-r from-foreground to-foreground/80 bg-clip-text text-transparent"
 						>
-							{sessionQuery.data.status === 'active' ? 'Active Workout Session' : 'Completed Session'}
+							{sessionQuery.data.status === 'active'
+								? 'Active Workout Session'
+								: 'Completed Session'}
 						</h1>
 						{#if sessionQuery.data.status === 'active'}
 							<span
@@ -370,12 +420,13 @@
 		<div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
 			<div class="lg:col-span-2 space-y-4">
 				<Skeleton class="h-10 w-40 mb-2" />
+				<!-- eslint-disable-next-line svelte/require-key-when-iterating, @typescript-eslint/no-unused-vars -->
 				{#each Array(3) as _, i (i)}
 					<Skeleton class="h-32 w-full rounded-xl" />
 				{/each}
 			</div>
 			<div>
-				<Skeleton class="h-[320px] w-full rounded-xl" />
+				<Skeleton class="h-80 w-full rounded-xl" />
 			</div>
 		</div>
 	{:else if sessionQuery.data}
@@ -433,7 +484,8 @@
 					<!-- Exercises Grid/List -->
 					<div class="space-y-4">
 						{#each exercises as exercise, index (exercise._id)}
-							{@const isActive = session.status === 'active' && index === session.currentExerciseIndex}
+							{@const isActive =
+								session.status === 'active' && index === session.currentExerciseIndex}
 							<Card.Root
 								class="relative overflow-hidden border transition-all duration-200 rounded-xl {isActive
 									? 'border-primary shadow-sm bg-primary/5'
@@ -458,7 +510,9 @@
 											>
 												<ArrowUp class="size-3.5" />
 											</Button>
-											<span class="text-[10px] font-mono font-bold text-muted-foreground leading-none">
+											<span
+												class="text-[10px] font-mono font-bold text-muted-foreground leading-none"
+											>
 												{index + 1}
 											</span>
 											<Button
@@ -522,7 +576,9 @@
 										{/if}
 
 										<!-- Rest & Sets (Card.Footer) -->
-										<Card.Footer class="p-0 mt-4 pt-3 border-t border-border/20 flex gap-4 text-xs text-muted-foreground">
+										<Card.Footer
+											class="p-0 mt-4 pt-3 border-t border-border/20 flex gap-4 text-xs text-muted-foreground"
+										>
 											<div class="flex items-center gap-1.5">
 												<ListPlus class="size-3.5 text-primary/60" />
 												<span>{exercise.setsCount} Target Sets</span>
@@ -556,7 +612,8 @@
 					</Card.Root>
 				{:else}
 					{@const currentExercise = exercises[session.currentExerciseIndex]}
-					{@const isWorkoutComplete = currentExercise && session.currentSet > currentExercise.setsCount}
+					{@const isWorkoutComplete =
+						currentExercise && session.currentSet > currentExercise.setsCount}
 
 					<Card.Root
 						class="overflow-hidden border border-border/80 bg-card/80 backdrop-blur-xs shadow-md rounded-xl"
@@ -586,10 +643,31 @@
 										</p>
 									</div>
 
-									<div class="grid grid-cols-2 gap-4 pt-4 border-t border-border/30">
+									<div class="flex flex-col items-center gap-2 mt-4">
+										<div
+											class="text-[11px] font-bold text-muted-foreground uppercase tracking-wider"
+										>
+											Finished Ago
+										</div>
+										<div class="text-3xl font-bold font-mono tracking-tight text-primary">
+											{formatTime(timeSinceFinished)}
+										</div>
+										<Button
+											variant="outline"
+											size="sm"
+											onclick={handleResumeSession}
+											class="rounded-full shadow-sm hover:shadow-md transition-all mt-2"
+										>
+											<Play class="mr-2 size-4" /> Resume Session
+										</Button>
+									</div>
+
+									<div class="grid grid-cols-2 gap-4 pt-6 border-t border-border/30 mt-4">
 										<div class="p-3 bg-muted/30 rounded-lg">
 											<div class="text-xl font-bold font-mono">{exercises.length}</div>
-											<div class="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold">
+											<div
+												class="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold"
+											>
 												Exercises
 											</div>
 										</div>
@@ -597,7 +675,9 @@
 											<div class="text-xl font-bold font-mono">
 												{exercises.reduce((sum, e) => sum + e.setsCount, 0)}
 											</div>
-											<div class="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold">
+											<div
+												class="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold"
+											>
 												Total Sets
 											</div>
 										</div>
@@ -614,8 +694,8 @@
 									<div class="space-y-1">
 										<h4 class="text-base font-bold">All Exercises Finished!</h4>
 										<p class="text-xs text-muted-foreground max-w-xs mx-auto">
-											You have finished logging all targets. Tap the Finish Workout button to
-											save this session.
+											You have finished logging all targets. Tap the Finish Workout button to save
+											this session.
 										</p>
 									</div>
 
@@ -654,9 +734,13 @@
 									<!-- Progression State indicator -->
 									{#if remainingTime > 0}
 										<!-- Rest countdown Active state -->
-										<div class="space-y-4 py-2 text-center bg-muted/20 border border-border/40 rounded-2xl p-4">
+										<div
+											class="space-y-4 py-2 text-center bg-muted/20 border border-border/40 rounded-2xl p-4"
+										>
 											<div class="space-y-1">
-												<div class="text-[11px] font-bold text-muted-foreground uppercase tracking-wider">
+												<div
+													class="text-[11px] font-bold text-muted-foreground uppercase tracking-wider"
+												>
 													Rest Period
 												</div>
 												<div class="text-4xl font-extrabold font-mono tracking-tight text-primary">
@@ -694,8 +778,12 @@
 										</div>
 									{:else}
 										<!-- Active logging mode -->
-										<div class="py-6 text-center border border-border/40 bg-card rounded-2xl space-y-2">
-											<div class="text-[11px] font-bold text-muted-foreground uppercase tracking-wider">
+										<div
+											class="py-6 text-center border border-border/40 bg-card rounded-2xl space-y-2"
+										>
+											<div
+												class="text-[11px] font-bold text-muted-foreground uppercase tracking-wider"
+											>
 												Active Set
 											</div>
 											<div class="text-5xl font-extrabold tracking-tight font-mono text-foreground">
@@ -863,14 +951,16 @@
 		<AlertDialog.Header>
 			<AlertDialog.Title class="text-lg font-bold">Finish Workout Session?</AlertDialog.Title>
 			<AlertDialog.Description class="text-xs text-muted-foreground">
-				Are you sure you want to finish and complete this workout session? Your stats will be saved to your dashboard. This action is irreversible.
+				Are you sure you want to finish this workout session? Your stats will be saved to your
+				dashboard. You can resume this session later if needed.
 			</AlertDialog.Description>
 		</AlertDialog.Header>
 		<AlertDialog.Footer class="flex gap-2 justify-end pt-4">
-			<AlertDialog.Cancel class="rounded-full">
-				Cancel
-			</AlertDialog.Cancel>
-			<AlertDialog.Action onclick={confirmFinishSession} class="rounded-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold">
+			<AlertDialog.Cancel class="rounded-full">Cancel</AlertDialog.Cancel>
+			<AlertDialog.Action
+				onclick={confirmFinishSession}
+				class="rounded-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold"
+			>
 				Finish Workout
 			</AlertDialog.Action>
 		</AlertDialog.Footer>
