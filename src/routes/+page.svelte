@@ -29,32 +29,31 @@
 	let isDialogOpen = $state(false);
 	let editingSession = $state<SessionWithExercises | null>(null);
 	let name = $state('');
-	let setsCount = $state<number>(3);
-	let restTime = $state<number>(60);
+	let defaultSetsCount = $state<number>(3);
+	let defaultRestTime = $state<number>(60);
 	let isSubmitting = $state(false);
 	let triedSubmit = $state(false);
 
 	// Form validation
 	let nameError = $derived(name.trim() === '' ? 'Name is required' : '');
-	let setsCountError = $derived(setsCount <= 0 ? 'Number of sets must be greater than 0' : '');
-	let restTimeError = $derived(restTime <= 0 ? 'Rest time must be greater than 0' : '');
+	let setsCountError = $derived(defaultSetsCount <= 0 ? 'Number of sets must be greater than 0' : '');
+	let restTimeError = $derived(defaultRestTime <= 0 ? 'Rest time must be greater than 0' : '');
 	let isValid = $derived(!nameError && !setsCountError && !restTimeError);
 
 	function openCreateDialog() {
 		editingSession = null;
 		name = '';
-		setsCount = 3;
-		restTime = 60;
+		defaultSetsCount = 3;
+		defaultRestTime = 60;
 		triedSubmit = false;
 		isDialogOpen = true;
 	}
 
 	function openEditDialog(session: SessionWithExercises) {
 		editingSession = session;
-		const exercise = session.exercises?.[0];
-		name = exercise?.name || '';
-		setsCount = exercise?.setsCount || 3;
-		restTime = exercise?.restTime || 60;
+		name = session.name;
+		defaultSetsCount = session.defaultSetsCount;
+		defaultRestTime = session.defaultRestTime;
 		triedSubmit = false;
 		isDialogOpen = true;
 	}
@@ -67,16 +66,15 @@
 			if (editingSession) {
 				await updateMutation({
 					sessionId: editingSession._id,
-					exerciseId: editingSession.exercises[0]._id,
 					name,
-					setsCount,
-					restTime
+					defaultSetsCount,
+					defaultRestTime
 				});
 			} else {
 				await createMutation({
 					name,
-					setsCount,
-					restTime
+					defaultSetsCount,
+					defaultRestTime
 				});
 			}
 			isDialogOpen = false;
@@ -198,7 +196,6 @@
 				<!-- Workout Sessions Grid -->
 				<Item.Group class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 w-full">
 					{#each sessionsQuery.data as session (session._id)}
-						{@const firstExercise = session.exercises?.[0]}
 						<ContextMenu.Root>
 							<ContextMenu.Trigger class="w-full h-full">
 								<Item.Root
@@ -212,7 +209,7 @@
 											<Item.Title
 												class="text-sm font-bold tracking-tight text-foreground/90 group-hover/session:text-primary transition-colors"
 											>
-												{firstExercise?.name || 'Unnamed Workout'}
+												{session.name}
 											</Item.Title>
 											<p class="text-[10px] text-muted-foreground">
 												{formatDate(session.startedAt)}
@@ -233,16 +230,16 @@
 										{/if}
 									</div>
 
-									<!-- Bottom Details: Sets, Rest Time & Actions -->
+									<!-- Bottom Details: Default Sets, Rest Time & Actions -->
 									<div class="flex items-end justify-between mt-6 pt-4 border-t border-border/30">
 										<div class="flex gap-4 text-[11px] text-muted-foreground">
 											<div class="flex items-center gap-1.5">
 												<ListPlus class="size-3.5 text-primary/60" />
-												<span>{firstExercise?.setsCount || 0} Sets</span>
+												<span>{session.defaultSetsCount} Sets</span>
 											</div>
 											<div class="flex items-center gap-1.5">
 												<Clock class="size-3.5 text-primary/60" />
-												<span>{firstExercise?.restTime || 0}s Rest</span>
+												<span>{session.defaultRestTime}s Rest</span>
 											</div>
 										</div>
 
@@ -324,12 +321,12 @@
 		>
 			<!-- Name Field -->
 			<div class="space-y-1.5">
-				<Label for="session-name">Exercise or Workout Name</Label>
+				<Label for="session-name">Session Name</Label>
 				<Input
 					id="session-name"
 					type="text"
 					bind:value={name}
-					placeholder="e.g. Bench Press, Leg Day"
+					placeholder="e.g. Push Day, Leg Day"
 					aria-invalid={triedSubmit && nameError !== ''}
 				/>
 				{#if triedSubmit && nameError}
@@ -345,7 +342,7 @@
 						id="session-sets"
 						type="number"
 						min="1"
-						bind:value={setsCount}
+						bind:value={defaultSetsCount}
 						aria-invalid={triedSubmit && setsCountError !== ''}
 					/>
 					{#if triedSubmit && setsCountError}
@@ -356,13 +353,13 @@
 				</div>
 
 				<div class="space-y-1.5">
-					<Label for="session-rest">Rest Time (Seconds)</Label>
+					<Label for="session-rest">Default Rest Time (Seconds)</Label>
 					<Input
 						id="session-rest"
 						type="number"
 						min="5"
 						step="5"
-						bind:value={restTime}
+						bind:value={defaultRestTime}
 						aria-invalid={triedSubmit && restTimeError !== ''}
 					/>
 					{#if triedSubmit && restTimeError}

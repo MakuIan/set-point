@@ -68,35 +68,28 @@ export const get = query({
 });
 
 /**
- * Create a new workout session and its first exercise snapshot.
+ * Create a new workout session (starts with no exercises).
  */
 export const create = mutation({
 	args: {
 		name: v.string(),
-		setsCount: v.number(),
-		restTime: v.number(),
-		description: v.optional(v.string())
+		defaultSetsCount: v.number(),
+		defaultRestTime: v.number()
 	},
 	handler: async (ctx, args) => {
 		const user = await authComponent.getAuthUser(ctx);
 
 		const sessionId = await ctx.db.insert('workoutSessions', {
 			userId: user._id,
+			name: args.name,
 			status: 'active',
 			startedAt: Date.now(),
 			currentExerciseIndex: 0,
 			currentSet: 1,
 			timerEndTime: null,
-			timerDuration: args.restTime
-		});
-
-		await ctx.db.insert('sessionExercises', {
-			sessionId,
-			name: args.name,
-			setsCount: args.setsCount,
-			restTime: args.restTime,
-			description: args.description,
-			order: 0
+			timerDuration: args.defaultRestTime,
+			defaultSetsCount: args.defaultSetsCount,
+			defaultRestTime: args.defaultRestTime
 		});
 
 		return sessionId;
@@ -104,16 +97,14 @@ export const create = mutation({
 });
 
 /**
- * Update details of a session's exercise.
+ * Update session-level details (name, defaults).
  */
 export const update = mutation({
 	args: {
 		sessionId: v.id('workoutSessions'),
-		exerciseId: v.id('sessionExercises'),
 		name: v.string(),
-		setsCount: v.number(),
-		restTime: v.number(),
-		description: v.optional(v.string())
+		defaultSetsCount: v.number(),
+		defaultRestTime: v.number()
 	},
 	handler: async (ctx, args) => {
 		const user = await authComponent.getAuthUser(ctx);
@@ -122,15 +113,11 @@ export const update = mutation({
 		if (!session || session.userId !== user._id) {
 			throw new Error('Unauthorized or session not found');
 		}
-		await ctx.db.patch(args.exerciseId, {
-			name: args.name,
-			setsCount: args.setsCount,
-			restTime: args.restTime,
-			description: args.description
-		});
-
 		await ctx.db.patch(args.sessionId, {
-			timerDuration: args.restTime
+			name: args.name,
+			defaultSetsCount: args.defaultSetsCount,
+			defaultRestTime: args.defaultRestTime,
+			timerDuration: args.defaultRestTime
 		});
 	}
 });

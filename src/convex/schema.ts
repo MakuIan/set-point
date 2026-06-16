@@ -34,6 +34,7 @@ export default defineSchema({
 	 */
 	workoutSessions: defineTable({
 		userId: v.string(),
+		name: v.string(),
 		templateId: v.optional(v.id('workoutTemplates')), // Tracks which template this session belongs to
 		status: v.string(), // "active" | "completed" | "cancelled"
 		startedAt: v.number(),
@@ -46,7 +47,9 @@ export default defineSchema({
 		// The precise Unix timestamp (ms) when the current rest timer ends.
 		timerEndTime: v.union(v.number(), v.null()),
 		// Keeps track of the total planned rest time for the current exercise
-		timerDuration: v.number()
+		timerDuration: v.number(),
+		defaultSetsCount: v.number(),
+		defaultRestTime: v.number()
 	})
 		.index('by_user_status', ['userId', 'status'])
 		// NEW INDEX: Allows you to instantly fetch the latest completed session for a specific routine

@@ -121,8 +121,8 @@
 	function openAddExercise() {
 		editingExercise = null;
 		exerciseName = '';
-		exerciseSets = 3;
-		exerciseRest = 60;
+		exerciseSets = sessionQuery?.data?.defaultSetsCount ?? 3;
+		exerciseRest = sessionQuery?.data?.defaultRestTime ?? 60;
 		exerciseDescription = '';
 		triedExerciseSubmit = false;
 		isExerciseDialogOpen = true;
