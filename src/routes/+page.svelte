@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { goto } from '$app/navigation';
+	import { resolve } from '$app/paths';
 	import { useQuery, useMutation } from 'convex-svelte';
 	import { api } from '../convex/_generated/api.js';
 	import * as ContextMenu from '$lib/components/ui/context-menu/index.js';
@@ -8,6 +10,7 @@
 	import { Button } from '$lib/components/ui/button/index.js';
 	import { Input } from '$lib/components/ui/input/index.js';
 	import { Label } from '$lib/components/ui/label/index.js';
+	import { Skeleton } from '$lib/components/ui/skeleton/index.js';
 	import { Dumbbell, Plus, Trash2, Edit3, Clock, ListPlus } from '@lucide/svelte';
 	import type { Id, DataModel } from '../convex/_generated/dataModel.js';
 	import type { DocumentByName } from 'convex/server';
@@ -139,11 +142,26 @@
 		<div class="flex-1 flex flex-col">
 			{#if sessionsQuery.isLoading}
 				<!-- Skeleton Loading State -->
-				<div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+				<div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 w-full">
 					{#each Array(6) as _, i (i)}
 						<div
-							class="h-32 rounded-xl border border-border/40 bg-muted/40 animate-pulse w-full"
-						></div>
+							class="border border-border/50 bg-card/60 p-5 rounded-xl flex flex-col justify-between h-full min-h-[140px]"
+						>
+							<div class="space-y-2">
+								<Skeleton class="h-4 w-2/3" />
+								<Skeleton class="h-3.5 w-1/3" />
+							</div>
+							<div class="flex items-center justify-between mt-6 pt-4 border-t border-border/30">
+								<div class="flex gap-4">
+									<Skeleton class="h-3.5 w-12" />
+									<Skeleton class="h-3.5 w-12" />
+								</div>
+								<div class="flex gap-1">
+									<Skeleton class="size-7 rounded-full" />
+									<Skeleton class="size-7 rounded-full" />
+								</div>
+							</div>
+						</div>
 					{/each}
 				</div>
 			{:else if sessionsQuery.data && sessionsQuery.data.length === 0}
@@ -186,7 +204,7 @@
 								<Item.Root
 									class="group/session relative overflow-hidden border border-border/50 bg-card/60 p-5 shadow-xs hover:shadow-md hover:scale-[1.01] hover:border-primary/20 transition-all duration-200 cursor-pointer rounded-xl flex flex-col justify-between h-full min-h-[140px] focus-visible:ring-2 focus-visible:ring-primary/50"
 									variant="outline"
-									onclick={() => openEditDialog(session)}
+									onclick={() => goto(resolve(`/sessions/${session._id}`))}
 								>
 									<!-- Top Details: Title & Status -->
 									<div class="flex items-start justify-between gap-4">

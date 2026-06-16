@@ -23,6 +23,7 @@ export default defineSchema({
 		name: v.string(), // e.g., "Dumbbell Bench Press"
 		setsCount: v.number(), // Default number of sets, e.g., 3
 		restTime: v.number(), // Rest duration in seconds, e.g., 60
+		description: v.optional(v.string()), // Optional exercise description/notes
 		order: v.number() // Execution order index (0, 1, 2...)
 	}).index('by_template', ['templateId']),
 
@@ -61,6 +62,7 @@ export default defineSchema({
 		name: v.string(), //
 		setsCount: v.number(), //
 		restTime: v.number(), //
+		description: v.optional(v.string()), //
 		order: v.number() //
 	}).index('by_session', ['sessionId']),
 
