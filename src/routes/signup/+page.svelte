@@ -12,24 +12,7 @@
 	<div class="flex flex-col gap-4 p-6 md:p-10">
 		<div class="flex justify-center gap-2 md:justify-start">
 			<a href={resolve('/')} class="flex items-center gap-2 font-medium">
-				<div
-					class="bg-primary text-primary-foreground flex size-6 items-center justify-center rounded-md"
-				>
-					<svg
-						xmlns="http://www.w3.org/2000/svg"
-						viewBox="0 0 24 24"
-						fill="none"
-						stroke="currentColor"
-						stroke-width="2"
-						stroke-linecap="round"
-						stroke-linejoin="round"
-						class="size-4"
-					>
-						<circle cx="12" cy="12" r="10" />
-						<path d="M12 8v8" />
-						<path d="M8 12h8" />
-					</svg>
-				</div>
+				<img src="/logo.svg" alt="Set Point Logo" class="size-6" />
 				Set Point
 			</a>
 		</div>
@@ -47,20 +30,11 @@
 				<div
 					class="bg-primary/10 flex size-20 items-center justify-center rounded-2xl backdrop-blur-sm"
 				>
-					<svg
-						xmlns="http://www.w3.org/2000/svg"
-						viewBox="0 0 24 24"
-						fill="none"
-						stroke="currentColor"
-						stroke-width="1.5"
-						stroke-linecap="round"
-						stroke-linejoin="round"
-						class="text-primary size-10"
-					>
-						<circle cx="12" cy="12" r="10" />
-						<path d="M12 8v8" />
-						<path d="M8 12h8" />
-					</svg>
+					<img
+						src="/logo.svg"
+						alt="Set Point Logo"
+						class="size-14"
+					/>
 				</div>
 				<h2 class="text-foreground/80 text-2xl font-semibold">Set Point</h2>
 				<p class="text-muted-foreground max-w-sm text-balance">

@@ -34,24 +34,7 @@
 				<!-- Left: Logo & App Name -->
 				<div class="flex items-center gap-2">
 					<a href={resolve('/')} class="flex items-center gap-2 font-medium">
-						<div
-							class="flex size-8 items-center justify-center rounded-lg bg-primary text-primary-foreground shadow-sm shadow-primary/30"
-						>
-							<svg
-								xmlns="http://www.w3.org/2000/svg"
-								viewBox="0 0 24 24"
-								fill="none"
-								stroke="currentColor"
-								stroke-width="2.5"
-								stroke-linecap="round"
-								stroke-linejoin="round"
-								class="size-4.5"
-							>
-								<circle cx="12" cy="12" r="10" />
-								<path d="M12 8v8" />
-								<path d="M8 12h8" />
-							</svg>
-						</div>
+						<img src="/logo.svg" alt="Set Point Logo" class="size-8" />
 						<span
 							class="bg-linear-to-r from-foreground to-foreground/80 bg-clip-text text-lg font-bold tracking-tight text-transparent"
 						>
