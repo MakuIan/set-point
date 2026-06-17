@@ -85,10 +85,7 @@
   fill="url(#matteBlackGrad)" 
 />
 
-<!-- 4. Dynamic Accent Point (The "Set-Point" Indicator) -->
-<!-- A sharp, energetic indicator dot/accent representing the target 'Set-Point' -->
-<circle cx="395" cy="115" r="22" fill="url(#dynamicRedGrad)" filter="url(#subtleShadow)" />
-<circle cx="395" cy="115" r="10" fill="#FFFFFF" />
+
 
   </g>
 </svg>
