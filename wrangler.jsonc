@@ -10,9 +10,4 @@
 	},
 	"workers_dev": true,
 	"preview_urls": true,
-	"vars": {
-		"BETTER_AUTH_URL": "https://set-point.icmagmilch.workers.dev",
-		"PUBLIC_CONVEX_SITE_URL": "https://valuable-toucan-674.convex.site/",
-		"PUBLIC_CONVEX_URL": "https://valuable-toucan-674.convex.cloud/"
-	}
 }
