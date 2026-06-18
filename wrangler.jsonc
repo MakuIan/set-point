@@ -2,7 +2,9 @@
 	"$schema": "./node_modules/wrangler/config-schema.json",
 	"name": "set-point",
 	"compatibility_date": "2026-06-15",
-	"compatibility_flags": ["nodejs_als"],
+	"compatibility_flags": [
+		"nodejs_compat"
+	],
 	"main": ".svelte-kit/cloudflare/_worker.js",
 	"assets": {
 		"binding": "ASSETS",
@@ -10,4 +12,10 @@
 	},
 	"workers_dev": true,
 	"preview_urls": true,
+	"vars": {
+		"BETTER_AUTH_URL": "https://set-point.icmagmilch.workers.dev",
+		"PUBLIC_CONVEX_SITE_URL": "https://valuable-toucan-674.convex.site/",
+		"PUBLIC_CONVEX_URL": "https://valuable-toucan-674.convex.cloud/",
+		"CONVEX_DEPLOYMENT": "prod:valuable-toucan-674"
+	}
 }
