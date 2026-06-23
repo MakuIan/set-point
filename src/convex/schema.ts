@@ -49,7 +49,14 @@ export default defineSchema({
 		// Keeps track of the total planned rest time for the current exercise
 		timerDuration: v.number(),
 		defaultSetsCount: v.number(),
-		defaultRestTime: v.number()
+		defaultRestTime: v.number(),
+
+		// --- Warm-up & Cool-down timers ---
+		warmupDuration: v.optional(v.union(v.number(), v.null())),
+		cooldownDuration: v.optional(v.union(v.number(), v.null())),
+		currentPhase: v.optional(v.string()), // "warmup" | "exercises" | "cooldown"
+		isPaused: v.optional(v.boolean()),
+		pausedRemainingTime: v.optional(v.union(v.number(), v.null()))
 	})
 		.index('by_user_status', ['userId', 'status'])
 		// NEW INDEX: Allows you to instantly fetch the latest completed session for a specific routine

@@ -31,6 +31,10 @@
 	let name = $state('');
 	let defaultSetsCount = $state<number>(3);
 	let defaultRestTime = $state<number>(60);
+	let hasWarmup = $state(false);
+	let warmupDurationMinutes = $state(5);
+	let hasCooldown = $state(false);
+	let cooldownDurationMinutes = $state(5);
 	let isSubmitting = $state(false);
 	let triedSubmit = $state(false);
 
@@ -38,13 +42,19 @@
 	let nameError = $derived(name.trim() === '' ? 'Name is required' : '');
 	let setsCountError = $derived(defaultSetsCount <= 0 ? 'Number of sets must be greater than 0' : '');
 	let restTimeError = $derived(defaultRestTime <= 0 ? 'Rest time must be greater than 0' : '');
-	let isValid = $derived(!nameError && !setsCountError && !restTimeError);
+	let warmupError = $derived(hasWarmup && warmupDurationMinutes <= 0 ? 'Warm-up duration must be greater than 0' : '');
+	let cooldownError = $derived(hasCooldown && cooldownDurationMinutes <= 0 ? 'Cool-down duration must be greater than 0' : '');
+	let isValid = $derived(!nameError && !setsCountError && !restTimeError && !warmupError && !cooldownError);
 
 	function openCreateDialog() {
 		editingSession = null;
 		name = '';
 		defaultSetsCount = 3;
 		defaultRestTime = 60;
+		hasWarmup = false;
+		warmupDurationMinutes = 5;
+		hasCooldown = false;
+		cooldownDurationMinutes = 5;
 		triedSubmit = false;
 		isDialogOpen = true;
 	}
@@ -54,6 +64,10 @@
 		name = session.name;
 		defaultSetsCount = session.defaultSetsCount;
 		defaultRestTime = session.defaultRestTime;
+		hasWarmup = session.warmupDuration !== null && session.warmupDuration !== undefined && session.warmupDuration > 0;
+		warmupDurationMinutes = hasWarmup ? Math.round((session.warmupDuration as number) / 60) : 5;
+		hasCooldown = session.cooldownDuration !== null && session.cooldownDuration !== undefined && session.cooldownDuration > 0;
+		cooldownDurationMinutes = hasCooldown ? Math.round((session.cooldownDuration as number) / 60) : 5;
 		triedSubmit = false;
 		isDialogOpen = true;
 	}
@@ -62,19 +76,27 @@
 		triedSubmit = true;
 		if (!isValid) return;
 		isSubmitting = true;
+
+		const warmupSecs = hasWarmup ? warmupDurationMinutes * 60 : null;
+		const cooldownSecs = hasCooldown ? cooldownDurationMinutes * 60 : null;
+
 		try {
 			if (editingSession) {
 				await updateMutation({
 					sessionId: editingSession._id,
 					name,
 					defaultSetsCount,
-					defaultRestTime
+					defaultRestTime,
+					warmupDuration: warmupSecs,
+					cooldownDuration: cooldownSecs
 				});
 			} else {
 				await createMutation({
 					name,
 					defaultSetsCount,
-					defaultRestTime
+					defaultRestTime,
+					warmupDuration: warmupSecs,
+					cooldownDuration: cooldownSecs
 				});
 			}
 			isDialogOpen = false;
@@ -255,7 +277,7 @@
 
 									<!-- Bottom Details: Default Sets, Rest Time & Actions -->
 									<div class="flex items-end justify-between mt-6 pt-4 border-t border-border/30">
-										<div class="flex gap-4 text-[11px] text-muted-foreground">
+										<div class="flex flex-nowrap gap-x-3 gap-y-1 text-[11px] text-muted-foreground max-w-[70%]">
 											<div class="flex items-center gap-1.5">
 												<ListPlus class="size-3.5 text-primary/60" />
 												<span>{session.defaultSetsCount} Sets</span>
@@ -264,6 +286,16 @@
 												<Clock class="size-3.5 text-primary/60" />
 												<span>{session.defaultRestTime}s Rest</span>
 											</div>
+											{#if session.warmupDuration}
+												<span class="inline-flex items-center px-1.5 py-0.25 rounded-sm bg-orange-500/10 text-orange-600 dark:text-orange-400 font-semibold text-[9px] uppercase tracking-wider">
+													Warm-up
+												</span>
+											{/if}
+											{#if session.cooldownDuration}
+												<span class="inline-flex items-center px-1.5 py-0.25 rounded-sm bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 font-semibold text-[9px] uppercase tracking-wider">
+													Cool-down
+												</span>
+											{/if}
 										</div>
 
 										<!-- Explicit Action Buttons (Visible on hover, accessible always) -->
@@ -386,10 +418,65 @@
 						aria-invalid={triedSubmit && restTimeError !== ''}
 					/>
 					{#if triedSubmit && restTimeError}
-						<span class="text-[10px] text-destructive leading-none block mt-1">{restTimeError}</span
-						>
+						<span class="text-[10px] text-destructive leading-none block mt-1">{restTimeError}</span>
 					{/if}
 				</div>
+			</div>
+
+			<!-- Warm-up Toggle & Input -->
+			<div class="space-y-3 border-t border-border/20 pt-4 mt-2">
+				<div class="flex items-center justify-between">
+					<Label for="session-warmup-toggle" class="cursor-pointer font-medium">Add Warm-up Timer</Label>
+					<input
+						id="session-warmup-toggle"
+						type="checkbox"
+						bind:checked={hasWarmup}
+						class="rounded-sm border-border text-primary focus:ring-primary size-4"
+					/>
+				</div>
+				{#if hasWarmup}
+					<div class="space-y-1.5 pl-6">
+						<Label for="session-warmup-duration">Warm-up Duration (Minutes)</Label>
+						<Input
+							id="session-warmup-duration"
+							type="number"
+							min="1"
+							bind:value={warmupDurationMinutes}
+							aria-invalid={triedSubmit && warmupError !== ''}
+						/>
+						{#if triedSubmit && warmupError}
+							<span class="text-[10px] text-destructive leading-none block mt-1">{warmupError}</span>
+						{/if}
+					</div>
+				{/if}
+			</div>
+
+			<!-- Cool-down Toggle & Input -->
+			<div class="space-y-3 border-t border-border/20 pt-4">
+				<div class="flex items-center justify-between">
+					<Label for="session-cooldown-toggle" class="cursor-pointer font-medium">Add Cool-down Timer</Label>
+					<input
+						id="session-cooldown-toggle"
+						type="checkbox"
+						bind:checked={hasCooldown}
+						class="rounded-sm border-border text-primary focus:ring-primary size-4"
+					/>
+				</div>
+				{#if hasCooldown}
+					<div class="space-y-1.5 pl-6">
+						<Label for="session-cooldown-duration">Cool-down Duration (Minutes)</Label>
+						<Input
+							id="session-cooldown-duration"
+							type="number"
+							min="1"
+							bind:value={cooldownDurationMinutes}
+							aria-invalid={triedSubmit && cooldownError !== ''}
+						/>
+						{#if triedSubmit && cooldownError}
+							<span class="text-[10px] text-destructive leading-none block mt-1">{cooldownError}</span>
+						{/if}
+					</div>
+				{/if}
 			</div>
 
 			<!-- Form Actions -->

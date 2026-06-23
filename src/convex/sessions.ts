@@ -74,10 +74,16 @@ export const create = mutation({
 	args: {
 		name: v.string(),
 		defaultSetsCount: v.number(),
-		defaultRestTime: v.number()
+		defaultRestTime: v.number(),
+		warmupDuration: v.optional(v.union(v.number(), v.null())),
+		cooldownDuration: v.optional(v.union(v.number(), v.null()))
 	},
 	handler: async (ctx, args) => {
 		const user = await authComponent.getAuthUser(ctx);
+
+		const warmupVal = args.warmupDuration ?? null;
+		const cooldownVal = args.cooldownDuration ?? null;
+		const hasWarmup = warmupVal !== null && warmupVal > 0;
 
 		const sessionId = await ctx.db.insert('workoutSessions', {
 			userId: user._id,
@@ -87,9 +93,12 @@ export const create = mutation({
 			currentExerciseIndex: 0,
 			currentSet: 1,
 			timerEndTime: null,
-			timerDuration: args.defaultRestTime,
+			timerDuration: hasWarmup ? warmupVal : args.defaultRestTime,
 			defaultSetsCount: args.defaultSetsCount,
-			defaultRestTime: args.defaultRestTime
+			defaultRestTime: args.defaultRestTime,
+			warmupDuration: warmupVal,
+			cooldownDuration: cooldownVal,
+			currentPhase: hasWarmup ? 'warmup' : 'exercises'
 		});
 
 		return sessionId;
@@ -104,7 +113,9 @@ export const update = mutation({
 		sessionId: v.id('workoutSessions'),
 		name: v.string(),
 		defaultSetsCount: v.number(),
-		defaultRestTime: v.number()
+		defaultRestTime: v.number(),
+		warmupDuration: v.optional(v.union(v.number(), v.null())),
+		cooldownDuration: v.optional(v.union(v.number(), v.null()))
 	},
 	handler: async (ctx, args) => {
 		const user = await authComponent.getAuthUser(ctx);
@@ -113,11 +124,21 @@ export const update = mutation({
 		if (!session || session.userId !== user._id) {
 			throw new Error('Unauthorized or session not found');
 		}
+
+		const warmupVal =
+			args.warmupDuration !== undefined ? args.warmupDuration : (session.warmupDuration ?? null);
+		const cooldownVal =
+			args.cooldownDuration !== undefined
+				? args.cooldownDuration
+				: (session.cooldownDuration ?? null);
+
 		await ctx.db.patch(args.sessionId, {
 			name: args.name,
 			defaultSetsCount: args.defaultSetsCount,
 			defaultRestTime: args.defaultRestTime,
-			timerDuration: args.defaultRestTime
+			timerDuration: args.defaultRestTime,
+			warmupDuration: warmupVal,
+			cooldownDuration: cooldownVal
 		});
 	}
 });
@@ -330,7 +351,10 @@ export const updatePlayerState = mutation({
 		currentExerciseIndex: v.number(),
 		currentSet: v.number(),
 		timerEndTime: v.union(v.number(), v.null()),
-		timerDuration: v.number()
+		timerDuration: v.number(),
+		currentPhase: v.optional(v.string()),
+		isPaused: v.optional(v.boolean()),
+		pausedRemainingTime: v.optional(v.union(v.number(), v.null()))
 	},
 	handler: async (ctx, args) => {
 		const user = await authComponent.getAuthUser(ctx);
@@ -340,12 +364,27 @@ export const updatePlayerState = mutation({
 			throw new Error('Unauthorized or session not found');
 		}
 
-		await ctx.db.patch(args.sessionId, {
+		const patch = {
 			currentExerciseIndex: args.currentExerciseIndex,
 			currentSet: args.currentSet,
 			timerEndTime: args.timerEndTime,
-			timerDuration: args.timerDuration
-		});
+			timerDuration: args.timerDuration,
+			isPaused:
+				args.isPaused !== undefined
+					? args.isPaused
+					: args.timerEndTime !== null
+						? false
+						: undefined,
+			pausedRemainingTime:
+				args.pausedRemainingTime !== undefined
+					? args.pausedRemainingTime
+					: args.timerEndTime !== null
+						? null
+						: undefined,
+			...(args.currentPhase !== undefined ? { currentPhase: args.currentPhase } : {})
+		};
+
+		await ctx.db.patch(args.sessionId, patch);
 	}
 });
 
@@ -365,10 +404,22 @@ export const finish = mutation({
 export const resume = mutation({
 	args: { sessionId: v.id('workoutSessions') },
 	handler: async (ctx, args) => {
+		const session = await ctx.db.get(args.sessionId);
+		if (!session) throw new Error('Session not found');
+
+		const warmupVal = session.warmupDuration ?? null;
+		const hasWarmup = warmupVal !== null && warmupVal > 0;
+
 		await ctx.db.patch(args.sessionId, {
 			status: 'active',
+			endedAt: undefined,
+			currentExerciseIndex: 0,
+			currentSet: 1,
 			timerEndTime: null,
-			endedAt: undefined
+			timerDuration: hasWarmup ? warmupVal : session.defaultRestTime,
+			currentPhase: hasWarmup ? 'warmup' : 'exercises',
+			isPaused: false,
+			pausedRemainingTime: null
 		});
 	}
 });
