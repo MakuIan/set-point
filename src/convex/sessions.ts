@@ -132,6 +132,47 @@ export const update = mutation({
 				? args.cooldownDuration
 				: (session.cooldownDuration ?? null);
 
+		const exercises = await ctx.db
+			.query('sessionExercises')
+			.withIndex('by_session', (q) => q.eq('sessionId', args.sessionId))
+			.collect();
+
+		if (warmupVal !== null && warmupVal > 0) {
+			const totalWarmupExerciseDuration = exercises
+				.filter((e) => e.phase === 'warmup')
+				.reduce((sum, e) => sum + (e.duration ?? 0), 0);
+			if (totalWarmupExerciseDuration > warmupVal) {
+				throw new Error(
+					`New warmup duration (${warmupVal}s) is less than the total duration of warmup exercises (${totalWarmupExerciseDuration}s).`
+				);
+			}
+		} else {
+			const hasWarmupExercises = exercises.some((e) => e.phase === 'warmup');
+			if (hasWarmupExercises) {
+				throw new Error(
+					'Cannot disable warmup because it contains exercises. Please delete the exercises first.'
+				);
+			}
+		}
+
+		if (cooldownVal !== null && cooldownVal > 0) {
+			const totalCooldownExerciseDuration = exercises
+				.filter((e) => e.phase === 'cooldown')
+				.reduce((sum, e) => sum + (e.duration ?? 0), 0);
+			if (totalCooldownExerciseDuration > cooldownVal) {
+				throw new Error(
+					`New cooldown duration (${cooldownVal}s) is less than the total duration of cooldown exercises (${totalCooldownExerciseDuration}s).`
+				);
+			}
+		} else {
+			const hasCooldownExercises = exercises.some((e) => e.phase === 'cooldown');
+			if (hasCooldownExercises) {
+				throw new Error(
+					'Cannot disable cooldown because it contains exercises. Please delete the exercises first.'
+				);
+			}
+		}
+
 		await ctx.db.patch(args.sessionId, {
 			name: args.name,
 			defaultSetsCount: args.defaultSetsCount,
@@ -189,7 +230,9 @@ export const addExercise = mutation({
 		name: v.string(),
 		setsCount: v.number(),
 		restTime: v.number(),
-		description: v.optional(v.string())
+		description: v.optional(v.string()),
+		phase: v.optional(v.string()),
+		duration: v.optional(v.number())
 	},
 	handler: async (ctx, args) => {
 		const user = await authComponent.getAuthUser(ctx);
@@ -204,6 +247,22 @@ export const addExercise = mutation({
 			.withIndex('by_session', (q) => q.eq('sessionId', args.sessionId))
 			.collect();
 
+		if (args.phase === 'warmup' || args.phase === 'cooldown') {
+			const limit = args.phase === 'warmup' ? session.warmupDuration : session.cooldownDuration;
+			if (limit === undefined || limit === null || limit <= 0) {
+				throw new Error(`Please enable the ${args.phase} duration in the session options first.`);
+			}
+			const totalDuration =
+				exercises
+					.filter((e) => e.phase === args.phase)
+					.reduce((sum, e) => sum + (e.duration ?? 0), 0) + (args.duration ?? 0);
+			if (totalDuration > limit) {
+				throw new Error(
+					`Total duration of exercises in this phase exceeds the configured limit of ${limit}s.`
+				);
+			}
+		}
+
 		const nextOrder = exercises.length > 0 ? Math.max(...exercises.map((e) => e.order)) + 1 : 0;
 
 		const exerciseId = await ctx.db.insert('sessionExercises', {
@@ -212,7 +271,9 @@ export const addExercise = mutation({
 			setsCount: args.setsCount,
 			restTime: args.restTime,
 			description: args.description,
-			order: nextOrder
+			order: nextOrder,
+			phase: args.phase,
+			duration: args.duration
 		});
 
 		return exerciseId;
@@ -229,7 +290,9 @@ export const updateExercise = mutation({
 		name: v.string(),
 		setsCount: v.number(),
 		restTime: v.number(),
-		description: v.optional(v.string())
+		description: v.optional(v.string()),
+		phase: v.optional(v.string()),
+		duration: v.optional(v.number())
 	},
 	handler: async (ctx, args) => {
 		const user = await authComponent.getAuthUser(ctx);
@@ -239,11 +302,33 @@ export const updateExercise = mutation({
 			throw new Error('Unauthorized or session not found');
 		}
 
+		const exercises = await ctx.db
+			.query('sessionExercises')
+			.withIndex('by_session', (q) => q.eq('sessionId', args.sessionId))
+			.collect();
+
+		if (args.phase === 'warmup' || args.phase === 'cooldown') {
+			const limit = args.phase === 'warmup' ? session.warmupDuration : session.cooldownDuration;
+			if (limit === undefined || limit === null || limit <= 0) {
+				throw new Error(`Please enable the ${args.phase} duration in the session options first.`);
+			}
+			const otherDuration = exercises
+				.filter((e) => e._id !== args.exerciseId && e.phase === args.phase)
+				.reduce((sum, e) => sum + (e.duration ?? 0), 0);
+			if (otherDuration + (args.duration ?? 0) > limit) {
+				throw new Error(
+					`Total duration of exercises in this phase exceeds the configured limit of ${limit}s.`
+				);
+			}
+		}
+
 		await ctx.db.patch(args.exerciseId, {
 			name: args.name,
 			setsCount: args.setsCount,
 			restTime: args.restTime,
-			description: args.description
+			description: args.description,
+			phase: args.phase,
+			duration: args.duration
 		});
 	}
 });

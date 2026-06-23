@@ -39,6 +39,8 @@
 		restTime: number;
 		description?: string;
 		order: number;
+		phase?: string;
+		duration?: number;
 	};
 
 	const sessionId = $derived(page.params.id as Id<'workoutSessions'>);
@@ -62,6 +64,8 @@
 	// Dialog & Form State
 	let isExerciseDialogOpen = $state(false);
 	let editingExercise = $state<SessionExercise | null>(null);
+	let exercisePhase = $state<'warmup' | 'exercises' | 'cooldown'>('exercises');
+	let exerciseDuration = $state(60);
 
 	// Phase Timer Dialog & State
 	let isPhaseTimerDialogOpen = $state(false);
@@ -76,10 +80,19 @@
 
 	// Validation
 	let exerciseNameError = $derived(exerciseName.trim() === '' ? 'Name is required' : '');
-	let exerciseSetsError = $derived(exerciseSets <= 0 ? 'Sets must be greater than 0' : '');
-	let exerciseRestError = $derived(exerciseRest <= 0 ? 'Rest time must be greater than 0' : '');
+	let exerciseSetsError = $derived(
+		exercisePhase === 'exercises' && exerciseSets <= 0 ? 'Sets must be greater than 0' : ''
+	);
+	let exerciseRestError = $derived(
+		exercisePhase === 'exercises' && exerciseRest <= 0 ? 'Rest time must be greater than 0' : ''
+	);
+	let exerciseDurationError = $derived(
+		(exercisePhase === 'warmup' || exercisePhase === 'cooldown') && exerciseDuration <= 0
+			? 'Duration must be greater than 0'
+			: ''
+	);
 	let isExerciseFormValid = $derived(
-		!exerciseNameError && !exerciseSetsError && !exerciseRestError
+		!exerciseNameError && !exerciseSetsError && !exerciseRestError && !exerciseDurationError
 	);
 
 	// Timer State & Sync
@@ -129,6 +142,93 @@
 		};
 	});
 
+	async function handleTimerExpired() {
+		if (!sessionQuery?.data) return;
+		const session = sessionQuery.data;
+
+		if (session.currentPhase === 'warmup') {
+			const warmupExercises = (session.exercises || []).filter((e) => e.phase === 'warmup');
+			const currentIndex = session.currentExerciseIndex;
+
+			if (currentIndex < warmupExercises.length - 1) {
+				const nextIndex = currentIndex + 1;
+				const nextDuration = warmupExercises[nextIndex].duration ?? 60;
+				await updatePlayerStateMutation({
+					sessionId: session._id,
+					currentExerciseIndex: nextIndex,
+					currentSet: 1,
+					timerEndTime: Date.now() + nextDuration * 1000,
+					timerDuration: nextDuration,
+					currentPhase: 'warmup'
+				});
+			} else if (currentIndex === warmupExercises.length - 1) {
+				const exercisesDuration = warmupExercises.reduce((sum, e) => sum + (e.duration ?? 0), 0);
+				const totalDuration = session.warmupDuration ?? 0;
+				const remainingGeneralTime = totalDuration - exercisesDuration;
+
+				if (remainingGeneralTime > 0) {
+					await updatePlayerStateMutation({
+						sessionId: session._id,
+						currentExerciseIndex: warmupExercises.length,
+						currentSet: 1,
+						timerEndTime: Date.now() + remainingGeneralTime * 1000,
+						timerDuration: remainingGeneralTime,
+						currentPhase: 'warmup'
+					});
+				} else {
+					await updatePlayerStateMutation({
+						sessionId: session._id,
+						currentExerciseIndex: warmupExercises.length,
+						currentSet: 1,
+						timerEndTime: 1, // ended
+						timerDuration: totalDuration,
+						currentPhase: 'warmup'
+					});
+				}
+			}
+		} else if (session.currentPhase === 'cooldown') {
+			const cooldownExercises = (session.exercises || []).filter((e) => e.phase === 'cooldown');
+			const currentIndex = session.currentExerciseIndex;
+
+			if (currentIndex < cooldownExercises.length - 1) {
+				const nextIndex = currentIndex + 1;
+				const nextDuration = cooldownExercises[nextIndex].duration ?? 60;
+				await updatePlayerStateMutation({
+					sessionId: session._id,
+					currentExerciseIndex: nextIndex,
+					currentSet: 1,
+					timerEndTime: Date.now() + nextDuration * 1000,
+					timerDuration: nextDuration,
+					currentPhase: 'cooldown'
+				});
+			} else if (currentIndex === cooldownExercises.length - 1) {
+				const exercisesDuration = cooldownExercises.reduce((sum, e) => sum + (e.duration ?? 0), 0);
+				const totalDuration = session.cooldownDuration ?? 0;
+				const remainingGeneralTime = totalDuration - exercisesDuration;
+
+				if (remainingGeneralTime > 0) {
+					await updatePlayerStateMutation({
+						sessionId: session._id,
+						currentExerciseIndex: cooldownExercises.length,
+						currentSet: 1,
+						timerEndTime: Date.now() + remainingGeneralTime * 1000,
+						timerDuration: remainingGeneralTime,
+						currentPhase: 'cooldown'
+					});
+				} else {
+					await updatePlayerStateMutation({
+						sessionId: session._id,
+						currentExerciseIndex: cooldownExercises.length,
+						currentSet: 1,
+						timerEndTime: 1, // ended
+						timerDuration: totalDuration,
+						currentPhase: 'cooldown'
+					});
+				}
+			}
+		}
+	}
+
 	// Reactively handle the countdown rest timer
 	$effect(() => {
 		const sessionData = sessionQuery?.data;
@@ -147,9 +247,12 @@
 				const updateTimer = () => {
 					const diff = Math.ceil((sessionData.timerEndTime! - Date.now()) / 1000);
 					remainingTime = Math.max(0, diff);
-					if (diff <= 0 && timerInterval) {
-						clearInterval(timerInterval);
-						timerInterval = null;
+					if (diff <= 0) {
+						if (timerInterval) {
+							clearInterval(timerInterval);
+							timerInterval = null;
+						}
+						handleTimerExpired();
 					}
 				};
 				updateTimer();
@@ -187,11 +290,13 @@
 	);
 
 	// Exercise Form Action Handlers
-	function openAddExercise() {
+	function openAddExercise(phase: 'warmup' | 'exercises' | 'cooldown' = 'exercises') {
 		editingExercise = null;
+		exercisePhase = phase;
 		exerciseName = '';
 		exerciseSets = sessionQuery?.data?.defaultSetsCount ?? 3;
 		exerciseRest = sessionQuery?.data?.defaultRestTime ?? 60;
+		exerciseDuration = 60;
 		exerciseDescription = '';
 		triedExerciseSubmit = false;
 		isExerciseDialogOpen = true;
@@ -199,9 +304,11 @@
 
 	function openEditExercise(exercise: SessionExercise) {
 		editingExercise = exercise;
+		exercisePhase = (exercise.phase as 'warmup' | 'exercises' | 'cooldown') || 'exercises';
 		exerciseName = exercise.name;
 		exerciseSets = exercise.setsCount;
 		exerciseRest = exercise.restTime;
+		exerciseDuration = exercise.duration ?? 60;
 		exerciseDescription = exercise.description || '';
 		triedExerciseSubmit = false;
 		isExerciseDialogOpen = true;
@@ -212,28 +319,32 @@
 		if (!isExerciseFormValid || !sessionQuery.data) return;
 
 		try {
+			const payload = {
+				name: exerciseName,
+				setsCount: exercisePhase === 'exercises' ? exerciseSets : 1,
+				restTime: exercisePhase === 'exercises' ? exerciseRest : 0,
+				description: exerciseDescription || undefined,
+				phase: exercisePhase,
+				duration: exercisePhase !== 'exercises' ? exerciseDuration : undefined
+			};
+
 			if (editingExercise) {
 				await updateExerciseMutation({
 					sessionId,
 					exerciseId: editingExercise._id,
-					name: exerciseName,
-					setsCount: exerciseSets,
-					restTime: exerciseRest,
-					description: exerciseDescription || undefined
+					...payload
 				});
 			} else {
 				await addExerciseMutation({
 					sessionId,
-					name: exerciseName,
-					setsCount: exerciseSets,
-					restTime: exerciseRest,
-					description: exerciseDescription || undefined
+					...payload
 				});
 			}
 			isExerciseDialogOpen = false;
 		} catch (err) {
 			console.error(err);
-			alert('Failed to save exercise.');
+			const errMsg = err instanceof Error ? err.message : 'Failed to save exercise.';
+			alert(errMsg);
 		}
 	}
 
@@ -267,7 +378,7 @@
 	async function handleLogSet() {
 		if (!sessionQuery?.data) return;
 		const session = sessionQuery.data;
-		const exercises = session.exercises;
+		const exercises = (session.exercises || []).filter((e) => !e.phase || e.phase === 'exercises');
 		if (exercises.length === 0) return;
 
 		const currentExercise = exercises[session.currentExerciseIndex];
@@ -291,12 +402,18 @@
 					session.cooldownDuration !== undefined &&
 					session.cooldownDuration > 0
 				) {
+					const cooldownExercises = (session.exercises || []).filter((e) => e.phase === 'cooldown');
+					const cdDuration =
+						cooldownExercises.length > 0
+							? (cooldownExercises[0].duration ?? 60)
+							: session.cooldownDuration;
+
 					await updatePlayerStateMutation({
 						sessionId: session._id,
-						currentExerciseIndex: nextExerciseIndex,
+						currentExerciseIndex: 0,
 						currentSet: currentExercise.setsCount + 1,
-						timerEndTime: Date.now() + session.cooldownDuration * 1000,
-						timerDuration: session.cooldownDuration,
+						timerEndTime: Date.now() + cdDuration * 1000,
+						timerDuration: cdDuration,
 						currentPhase: 'cooldown'
 					});
 					return;
@@ -378,7 +495,7 @@
 	async function handleGoBack() {
 		if (!sessionQuery?.data) return;
 		const session = sessionQuery.data;
-		const exercises = session.exercises;
+		const exercises = (session.exercises || []).filter((e) => !e.phase || e.phase === 'exercises');
 		if (exercises.length === 0) return;
 
 		let prevExerciseIndex = session.currentExerciseIndex;
@@ -398,12 +515,27 @@
 			session.warmupDuration > 0
 		) {
 			// Transition back to warmup phase
+			const warmupExercises = (session.exercises || []).filter((e) => e.phase === 'warmup');
+			let targetIndex = 0;
+			let duration = session.warmupDuration;
+
+			if (warmupExercises.length > 0) {
+				const exercisesDuration = warmupExercises.reduce((sum, e) => sum + (e.duration ?? 0), 0);
+				if (session.warmupDuration > exercisesDuration) {
+					targetIndex = warmupExercises.length;
+					duration = session.warmupDuration - exercisesDuration;
+				} else {
+					targetIndex = warmupExercises.length - 1;
+					duration = warmupExercises[targetIndex].duration ?? 60;
+				}
+			}
+
 			await updatePlayerStateMutation({
 				sessionId: session._id,
-				currentExerciseIndex: 0,
+				currentExerciseIndex: targetIndex,
 				currentSet: 1,
 				timerEndTime: null,
-				timerDuration: session.warmupDuration,
+				timerDuration: duration,
 				currentPhase: 'warmup'
 			});
 			return;
@@ -536,12 +668,20 @@
 
 	async function handleStartWarmup() {
 		if (!sessionQuery?.data) return;
+		const session = sessionQuery.data;
+		const warmupExercises = (session.exercises || []).filter((e) => e.phase === 'warmup');
+
+		let duration = session.warmupDuration ?? 0;
+		if (warmupExercises.length > 0) {
+			duration = warmupExercises[0].duration ?? 60;
+		}
+
 		await updatePlayerStateMutation({
 			sessionId,
-			currentExerciseIndex: sessionQuery.data.currentExerciseIndex,
-			currentSet: sessionQuery.data.currentSet,
-			timerEndTime: Date.now() + sessionQuery.data.timerDuration * 1000,
-			timerDuration: sessionQuery.data.timerDuration,
+			currentExerciseIndex: 0,
+			currentSet: 1,
+			timerEndTime: Date.now() + duration * 1000,
+			timerDuration: duration,
 			currentPhase: 'warmup'
 		});
 	}
@@ -584,7 +724,7 @@
 	async function handleGoBackFromCooldown() {
 		if (!sessionQuery?.data) return;
 		const session = sessionQuery.data;
-		const exercises = session.exercises;
+		const exercises = (session.exercises || []).filter((e) => !e.phase || e.phase === 'exercises');
 		if (exercises.length === 0) return;
 
 		const lastExerciseIndex = exercises.length - 1;
@@ -698,7 +838,10 @@
 		</div>
 	{:else if sessionQuery.data}
 		{@const session = sessionQuery.data}
-		{@const exercises = session.exercises || []}
+		{@const allExercises = session.exercises || []}
+		{@const warmupExercises = allExercises.filter((e) => e.phase === 'warmup')}
+		{@const cooldownExercises = allExercises.filter((e) => e.phase === 'cooldown')}
+		{@const exercises = allExercises.filter((e) => !e.phase || e.phase === 'exercises')}
 
 		<div class="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start">
 			<!-- Exercises List Column -->
@@ -708,7 +851,7 @@
 					<Button
 						variant="outline"
 						size="sm"
-						onclick={openAddExercise}
+						onclick={() => openAddExercise()}
 						class="rounded-full border-primary/20 hover:bg-primary/5 hover:text-primary transition-all"
 					>
 						<Plus class="mr-1.5 size-4" /> Add Exercise
@@ -781,6 +924,56 @@
 							</div>
 						</div>
 					</Card.Root>
+
+					<!-- Warm-up exercises list -->
+					{#if warmupExercises.length > 0}
+						<div class="ml-4 pl-4 border-l border-orange-500/20 space-y-2 mt-2">
+							{#each warmupExercises as exercise, wuIndex (exercise._id)}
+								<div
+									class="flex items-center justify-between p-3 bg-muted/20 border border-border/40 rounded-xl text-sm"
+								>
+									<div class="flex items-center gap-2">
+										<span class="text-xs font-mono font-bold text-orange-500">{wuIndex + 1}</span>
+										<span class="font-semibold">{exercise.name}</span>
+										<span class="text-xs text-muted-foreground">({exercise.duration}s)</span>
+									</div>
+									<div class="flex items-center gap-1">
+										<Button
+											variant="ghost"
+											size="icon-xs"
+											onclick={() => openEditExercise(exercise)}
+											class="hover:bg-primary/10 hover:text-primary rounded-full size-6"
+											title="Edit warmup exercise"
+										>
+											<Edit3 class="size-3" />
+										</Button>
+										<Button
+											variant="ghost"
+											size="icon-xs"
+											onclick={() => handleDeleteExercise(exercise._id)}
+											class="hover:bg-destructive/10 hover:text-destructive text-muted-foreground rounded-full size-6"
+											title="Delete warmup exercise"
+										>
+											<Trash2 class="size-3" />
+										</Button>
+									</div>
+								</div>
+							{/each}
+						</div>
+					{/if}
+
+					{#if session.status === 'active'}
+						<div class="pl-4 mt-2">
+							<Button
+								variant="outline"
+								size="xs"
+								onclick={() => openAddExercise('warmup')}
+								class="rounded-full border-orange-500/20 text-orange-600 hover:bg-orange-500/5 hover:text-orange-700 transition-all text-[11px]"
+							>
+								<Plus class="mr-1 size-3" /> Add Warm-up Exercise
+							</Button>
+						</div>
+					{/if}
 				{:else if session.status === 'active'}
 					<Button
 						variant="ghost"
@@ -812,7 +1005,7 @@
 							</Empty.Header>
 							<Empty.Content class="mt-4">
 								<Button
-									onclick={openAddExercise}
+									onclick={() => openAddExercise()}
 									size="sm"
 									class="rounded-full shadow-sm hover:shadow-md transition-all"
 								>
@@ -1010,6 +1203,56 @@
 							</div>
 						</div>
 					</Card.Root>
+
+					<!-- Cool-down exercises list -->
+					{#if cooldownExercises.length > 0}
+						<div class="ml-4 pl-4 border-l border-cyan-500/20 space-y-2 mt-2">
+							{#each cooldownExercises as exercise, cdIndex (exercise._id)}
+								<div
+									class="flex items-center justify-between p-3 bg-muted/20 border border-border/40 rounded-xl text-sm"
+								>
+									<div class="flex items-center gap-2">
+										<span class="text-xs font-mono font-bold text-cyan-500">{cdIndex + 1}</span>
+										<span class="font-semibold">{exercise.name}</span>
+										<span class="text-xs text-muted-foreground">({exercise.duration}s)</span>
+									</div>
+									<div class="flex items-center gap-1">
+										<Button
+											variant="ghost"
+											size="icon-xs"
+											onclick={() => openEditExercise(exercise)}
+											class="hover:bg-primary/10 hover:text-primary rounded-full size-6"
+											title="Edit cooldown exercise"
+										>
+											<Edit3 class="size-3" />
+										</Button>
+										<Button
+											variant="ghost"
+											size="icon-xs"
+											onclick={() => handleDeleteExercise(exercise._id)}
+											class="hover:bg-destructive/10 hover:text-destructive text-muted-foreground rounded-full size-6"
+											title="Delete cooldown exercise"
+										>
+											<Trash2 class="size-3" />
+										</Button>
+									</div>
+								</div>
+							{/each}
+						</div>
+					{/if}
+
+					{#if session.status === 'active'}
+						<div class="pl-4 mt-2">
+							<Button
+								variant="outline"
+								size="xs"
+								onclick={() => openAddExercise('cooldown')}
+								class="rounded-full border-cyan-500/20 text-cyan-600 hover:bg-cyan-500/5 hover:text-cyan-700 transition-all text-[11px]"
+							>
+								<Plus class="mr-1 size-3" /> Add Cool-down Exercise
+							</Button>
+						</div>
+					{/if}
 				{:else if session.status === 'active'}
 					<Button
 						variant="ghost"
@@ -1118,12 +1361,31 @@
 										>
 											Warm-up Phase
 										</div>
-										<h4 class="text-lg font-bold tracking-tight leading-tight">
-											Prepare Your Body
-										</h4>
-										<p class="text-xs text-muted-foreground mt-1 leading-relaxed">
-											Increase body temperature and prepare your muscles.
-										</p>
+										{#if warmupExercises.length > 0 && session.currentExerciseIndex < warmupExercises.length}
+											{@const activeExercise = warmupExercises[session.currentExerciseIndex]}
+											<h4 class="text-lg font-bold tracking-tight leading-tight">
+												{activeExercise.name}
+											</h4>
+											{#if activeExercise.description}
+												<p class="text-xs text-muted-foreground mt-1 leading-relaxed">
+													{activeExercise.description}
+												</p>
+											{:else}
+												<p class="text-xs text-muted-foreground mt-1 leading-relaxed">
+													Perform this warm-up movement. (Exercise {session.currentExerciseIndex +
+														1} of {warmupExercises.length})
+												</p>
+											{/if}
+										{:else}
+											<h4 class="text-lg font-bold tracking-tight leading-tight">
+												Prepare Your Body
+											</h4>
+											<p class="text-xs text-muted-foreground mt-1 leading-relaxed">
+												{warmupExercises.length > 0
+													? 'General warm-up / rest period.'
+													: 'Increase body temperature and prepare your muscles.'}
+											</p>
+										{/if}
 									</div>
 
 									{#if remainingTime > 0}
@@ -1257,12 +1519,31 @@
 										>
 											Cool-down Phase
 										</div>
-										<h4 class="text-lg font-bold tracking-tight leading-tight">
-											Relax and Recover
-										</h4>
-										<p class="text-xs text-muted-foreground mt-1 leading-relaxed">
-											Slow down your heart rate and stretch.
-										</p>
+										{#if cooldownExercises.length > 0 && session.currentExerciseIndex < cooldownExercises.length}
+											{@const activeExercise = cooldownExercises[session.currentExerciseIndex]}
+											<h4 class="text-lg font-bold tracking-tight leading-tight">
+												{activeExercise.name}
+											</h4>
+											{#if activeExercise.description}
+												<p class="text-xs text-muted-foreground mt-1 leading-relaxed">
+													{activeExercise.description}
+												</p>
+											{:else}
+												<p class="text-xs text-muted-foreground mt-1 leading-relaxed">
+													Perform this cool-down stretch. (Stretch {session.currentExerciseIndex +
+														1} of {cooldownExercises.length})
+												</p>
+											{/if}
+										{:else}
+											<h4 class="text-lg font-bold tracking-tight leading-tight">
+												Relax and Recover
+											</h4>
+											<p class="text-xs text-muted-foreground mt-1 leading-relaxed">
+												{cooldownExercises.length > 0
+													? 'General cool-down / recovery period.'
+													: 'Slow down your heart rate and stretch.'}
+											</p>
+										{/if}
 									</div>
 
 									{#if remainingTime > 0}
@@ -1537,10 +1818,16 @@
 	<Dialog.Content class="sm:max-w-md bg-card border border-border/80 shadow-lg">
 		<Dialog.Header>
 			<Dialog.Title class="text-lg font-bold">
-				{editingExercise ? 'Edit Exercise' : 'Add Exercise to Session'}
+				{editingExercise
+					? `Edit ${exercisePhase === 'warmup' ? 'Warm-up' : exercisePhase === 'cooldown' ? 'Cool-down' : ''} Exercise`
+					: `Add Exercise to ${exercisePhase === 'warmup' ? 'Warm-up' : exercisePhase === 'cooldown' ? 'Cool-down' : 'Session'}`}
 			</Dialog.Title>
 			<Dialog.Description class="text-xs text-muted-foreground">
-				Provide target sets, rest interval, and optional description notes.
+				{#if exercisePhase === 'exercises'}
+					Provide target sets, rest interval, and optional description notes.
+				{:else}
+					Provide exercise duration and optional description notes.
+				{/if}
 			</Dialog.Description>
 		</Dialog.Header>
 
@@ -1579,41 +1866,61 @@
 				/>
 			</div>
 
-			<!-- Target Sets & Rest Time Row -->
-			<div class="grid grid-cols-2 gap-4">
-				<div class="space-y-1.5">
-					<Label for="exercise-sets">Target Sets</Label>
-					<Input
-						id="exercise-sets"
-						type="number"
-						min="1"
-						bind:value={exerciseSets}
-						aria-invalid={triedExerciseSubmit && exerciseSetsError !== ''}
-					/>
-					{#if triedExerciseSubmit && exerciseSetsError}
-						<span class="text-[10px] text-destructive leading-none block mt-1">
-							{exerciseSetsError}
-						</span>
-					{/if}
-				</div>
+			{#if exercisePhase === 'exercises'}
+				<!-- Target Sets & Rest Time Row -->
+				<div class="grid grid-cols-2 gap-4 animate-fade-in">
+					<div class="space-y-1.5">
+						<Label for="exercise-sets">Target Sets</Label>
+						<Input
+							id="exercise-sets"
+							type="number"
+							min="1"
+							bind:value={exerciseSets}
+							aria-invalid={triedExerciseSubmit && exerciseSetsError !== ''}
+						/>
+						{#if triedExerciseSubmit && exerciseSetsError}
+							<span class="text-[10px] text-destructive leading-none block mt-1">
+								{exerciseSetsError}
+							</span>
+						{/if}
+					</div>
 
-				<div class="space-y-1.5">
-					<Label for="exercise-rest">Rest (Seconds)</Label>
+					<div class="space-y-1.5">
+						<Label for="exercise-rest">Rest (Seconds)</Label>
+						<Input
+							id="exercise-rest"
+							type="number"
+							min="5"
+							step="5"
+							bind:value={exerciseRest}
+							aria-invalid={triedExerciseSubmit && exerciseRestError !== ''}
+						/>
+						{#if triedExerciseSubmit && exerciseRestError}
+							<span class="text-[10px] text-destructive leading-none block mt-1">
+								{exerciseRestError}
+							</span>
+						{/if}
+					</div>
+				</div>
+			{:else}
+				<!-- Duration Row for Warmup / Cooldown -->
+				<div class="space-y-1.5 animate-fade-in">
+					<Label for="exercise-duration">Duration (Seconds)</Label>
 					<Input
-						id="exercise-rest"
+						id="exercise-duration"
 						type="number"
 						min="5"
 						step="5"
-						bind:value={exerciseRest}
-						aria-invalid={triedExerciseSubmit && exerciseRestError !== ''}
+						bind:value={exerciseDuration}
+						aria-invalid={triedExerciseSubmit && exerciseDurationError !== ''}
 					/>
-					{#if triedExerciseSubmit && exerciseRestError}
+					{#if triedExerciseSubmit && exerciseDurationError}
 						<span class="text-[10px] text-destructive leading-none block mt-1">
-							{exerciseRestError}
+							{exerciseDurationError}
 						</span>
 					{/if}
 				</div>
-			</div>
+			{/if}
 
 			<!-- Footer Action Buttons -->
 			<Dialog.Footer class="pt-4 flex gap-2 justify-end">

@@ -24,7 +24,9 @@ export default defineSchema({
 		setsCount: v.number(), // Default number of sets, e.g., 3
 		restTime: v.number(), // Rest duration in seconds, e.g., 60
 		description: v.optional(v.string()), // Optional exercise description/notes
-		order: v.number() // Execution order index (0, 1, 2...)
+		order: v.number(), // Execution order index (0, 1, 2...)
+		phase: v.optional(v.string()), // 'warmup' | 'exercises' | 'cooldown'
+		duration: v.optional(v.number()) // Exercise duration in seconds (for warmup/cooldown)
 	}).index('by_template', ['templateId']),
 
 	/**
@@ -69,11 +71,13 @@ export default defineSchema({
 	 */
 	sessionExercises: defineTable({
 		sessionId: v.id('workoutSessions'),
-		name: v.string(), //
-		setsCount: v.number(), //
-		restTime: v.number(), //
-		description: v.optional(v.string()), //
-		order: v.number() //
+		name: v.string(),
+		setsCount: v.number(),
+		restTime: v.number(),
+		description: v.optional(v.string()),
+		order: v.number(),
+		phase: v.optional(v.string()), // 'warmup' | 'exercises' | 'cooldown'
+		duration: v.optional(v.number()) // Exercise duration in seconds (for warmup/cooldown)
 	}).index('by_session', ['sessionId']),
 
 	/**
