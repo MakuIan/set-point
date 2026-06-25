@@ -8,12 +8,19 @@
 	import { resolve } from '$app/paths';
 	import { Button } from '$lib/components/ui/button/index.js';
 	import { LogOut } from '@lucide/svelte';
+	import { PUBLIC_CONVEX_URL } from '$env/static/public';
+	import { setupConvex } from 'convex-svelte';
 
 	const { children, data } = $props();
 
+	setupConvex(PUBLIC_CONVEX_URL, {
+		expectAuth: true
+	});
+
 	createSvelteAuthClient({
 		authClient: authClient as unknown as AuthClient,
-		getServerState: () => data.authState as InitialAuthState | undefined
+		getServerState: () => data.authState as InitialAuthState | undefined,
+		
 	});
 
 	const session = authClient.useSession();
