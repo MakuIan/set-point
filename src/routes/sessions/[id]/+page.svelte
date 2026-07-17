@@ -1266,7 +1266,7 @@
 			</div>
 
 			<!-- Live Workout Tracker & Timer Section -->
-			<div>
+		<div class="sticky top-6">
 				{#if exercises.length === 0}
 					<Card.Root class="border-dashed border-border/60 bg-muted/10 text-center p-8">
 						<Card.Content class="space-y-4">

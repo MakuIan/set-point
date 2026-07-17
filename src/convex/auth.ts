@@ -21,7 +21,10 @@ export const createAuth: CreateAuth<DataModel> = (ctx: GenericCtx<DataModel>) =>
 				clientSecret: process.env.GOOGLE_CLIENT_SECRET!
 			}
 		},
-		trustedOrigins: [process.env.SITE_URL!],
+		trustedOrigins: [
+			process.env.SITE_URL!,
+			'http://localhost:5173'
+		],
 		plugins: [convex({ authConfig })]
 	});
 };
