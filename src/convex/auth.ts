@@ -21,6 +21,13 @@ export const createAuth: CreateAuth<DataModel> = (ctx: GenericCtx<DataModel>) =>
 				clientSecret: process.env.GOOGLE_CLIENT_SECRET!
 			}
 		},
+		account: {
+			accountLinking: {
+				enabled: true,
+				trustedProviders: ['google'],
+				requireLocalEmailVerified: false
+			}
+		},
 		trustedOrigins: [
 			process.env.SITE_URL!,
 			'http://localhost:5173'
