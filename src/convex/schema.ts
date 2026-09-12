@@ -56,6 +56,8 @@ export default defineSchema({
 		// --- Warm-up & Cool-down timers ---
 		warmupDuration: v.optional(v.union(v.number(), v.null())),
 		cooldownDuration: v.optional(v.union(v.number(), v.null())),
+		isWarmupDisabled: v.optional(v.boolean()),
+		isCooldownDisabled: v.optional(v.boolean()),
 		currentPhase: v.optional(v.string()), // "warmup" | "exercises" | "cooldown"
 		isPaused: v.optional(v.boolean()),
 		pausedRemainingTime: v.optional(v.union(v.number(), v.null()))
@@ -77,7 +79,8 @@ export default defineSchema({
 		description: v.optional(v.string()),
 		order: v.number(),
 		phase: v.optional(v.string()), // 'warmup' | 'exercises' | 'cooldown'
-		duration: v.optional(v.number()) // Exercise duration in seconds (for warmup/cooldown)
+		duration: v.optional(v.number()), // Exercise duration in seconds (for warmup/cooldown)
+		isDisabled: v.optional(v.boolean()) // Temporary exclusion for current session
 	}).index('by_session', ['sessionId']),
 
 	/**

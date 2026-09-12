@@ -32,7 +32,22 @@ export const list = query({
 			})
 		);
 
-		return sessionsWithDetails.sort((a, b) => b.startedAt - a.startedAt);
+		return sessionsWithDetails.sort((a, b) => {
+			const aIsActive = a.status === 'active';
+			const bIsActive = b.status === 'active';
+
+			if (aIsActive && !bIsActive) return -1;
+			if (!aIsActive && bIsActive) return 1;
+
+			if (aIsActive && bIsActive) {
+				return b.startedAt - a.startedAt;
+			}
+
+			// For non-active (completed/other) sessions, sort by most recently finished first
+			const aFinished = a.endedAt ?? a.timerEndTime ?? a.startedAt;
+			const bFinished = b.endedAt ?? b.timerEndTime ?? b.startedAt;
+			return bFinished - aFinished;
+		});
 	}
 });
 
@@ -473,6 +488,64 @@ export const updatePlayerState = mutation({
 	}
 });
 
+/**
+ * Toggle whether an exercise is disabled for the current session.
+ */
+export const toggleExerciseDisabled = mutation({
+	args: {
+		sessionId: v.id('workoutSessions'),
+		exerciseId: v.id('sessionExercises')
+	},
+	handler: async (ctx, args) => {
+		const user = await authComponent.getAuthUser(ctx);
+
+		const session = await ctx.db.get(args.sessionId);
+		if (!session || session.userId !== user._id) {
+			throw new Error('Unauthorized or session not found');
+		}
+
+		const exercise = await ctx.db.get(args.exerciseId);
+		if (!exercise || exercise.sessionId !== args.sessionId) {
+			throw new Error('Exercise not found in this session');
+		}
+
+		const nextDisabled = !exercise.isDisabled;
+		await ctx.db.patch(args.exerciseId, {
+			isDisabled: nextDisabled
+		});
+
+		return nextDisabled;
+	}
+});
+
+/**
+ * Toggle whether warm-up or cool-down is disabled for the current session.
+ */
+export const togglePhaseDisabled = mutation({
+	args: {
+		sessionId: v.id('workoutSessions'),
+		phase: v.union(v.literal('warmup'), v.literal('cooldown'))
+	},
+	handler: async (ctx, args) => {
+		const user = await authComponent.getAuthUser(ctx);
+
+		const session = await ctx.db.get(args.sessionId);
+		if (!session || session.userId !== user._id) {
+			throw new Error('Unauthorized or session not found');
+		}
+
+		if (args.phase === 'warmup') {
+			await ctx.db.patch(args.sessionId, {
+				isWarmupDisabled: !session.isWarmupDisabled
+			});
+		} else {
+			await ctx.db.patch(args.sessionId, {
+				isCooldownDisabled: !session.isCooldownDisabled
+			});
+		}
+	}
+});
+
 // Mark the session as finished and record the current timestamp
 export const finish = mutation({
 	args: { sessionId: v.id('workoutSessions') },
@@ -489,8 +562,23 @@ export const finish = mutation({
 export const resume = mutation({
 	args: { sessionId: v.id('workoutSessions') },
 	handler: async (ctx, args) => {
+		const user = await authComponent.getAuthUser(ctx);
 		const session = await ctx.db.get(args.sessionId);
-		if (!session) throw new Error('Session not found');
+		if (!session || session.userId !== user._id) {
+			throw new Error('Unauthorized or session not found');
+		}
+
+		// Automatically re-enable all exercises when starting/resuming the session
+		const exercises = await ctx.db
+			.query('sessionExercises')
+			.withIndex('by_session', (q) => q.eq('sessionId', args.sessionId))
+			.collect();
+
+		for (const ex of exercises) {
+			if (ex.isDisabled) {
+				await ctx.db.patch(ex._id, { isDisabled: false });
+			}
+		}
 
 		const warmupVal = session.warmupDuration ?? null;
 		const hasWarmup = warmupVal !== null && warmupVal > 0;
@@ -504,7 +592,10 @@ export const resume = mutation({
 			timerDuration: hasWarmup ? warmupVal : session.defaultRestTime,
 			currentPhase: hasWarmup ? 'warmup' : 'exercises',
 			isPaused: false,
-			pausedRemainingTime: null
+			pausedRemainingTime: null,
+			isWarmupDisabled: false,
+			isCooldownDisabled: false
 		});
 	}
 });
+

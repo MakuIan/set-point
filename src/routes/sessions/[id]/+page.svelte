@@ -25,7 +25,10 @@
 		Check,
 		Play,
 		Square,
-		Award
+		Award,
+		SkipForward,
+		Eye,
+		EyeOff,
 	} from '@lucide/svelte';
 	import type { Id } from '../../../convex/_generated/dataModel.js';
 
@@ -41,6 +44,7 @@
 		order: number;
 		phase?: string;
 		duration?: number;
+		isDisabled?: boolean;
 	};
 
 	const sessionId = $derived(page.params.id as Id<'workoutSessions'>);
@@ -60,6 +64,8 @@
 	const finishSessionMutation = useMutation(api.sessions.finish);
 	const resumeSessionMutation = useMutation(api.sessions.resume);
 	const updateSessionMutation = useMutation(api.sessions.update);
+	const toggleExerciseDisabledMutation = useMutation(api.sessions.toggleExerciseDisabled);
+	const togglePhaseDisabledMutation = useMutation(api.sessions.togglePhaseDisabled);
 
 	// Dialog & Form State
 	let isExerciseDialogOpen = $state(false);
@@ -147,7 +153,7 @@
 		const session = sessionQuery.data;
 
 		if (session.currentPhase === 'warmup') {
-			const warmupExercises = (session.exercises || []).filter((e) => e.phase === 'warmup');
+			const warmupExercises = (session.exercises || []).filter((e) => e.phase === 'warmup' && !e.isDisabled);
 			const currentIndex = session.currentExerciseIndex;
 
 			if (currentIndex < warmupExercises.length - 1) {
@@ -187,7 +193,7 @@
 				}
 			}
 		} else if (session.currentPhase === 'cooldown') {
-			const cooldownExercises = (session.exercises || []).filter((e) => e.phase === 'cooldown');
+			const cooldownExercises = (session.exercises || []).filter((e) => e.phase === 'cooldown' && !e.isDisabled);
 			const currentIndex = session.currentExerciseIndex;
 
 			if (currentIndex < cooldownExercises.length - 1) {
@@ -374,14 +380,38 @@
 		}
 	}
 
+	// Reactive adjustment if current active exercise index exceeds enabled exercises
+	$effect(() => {
+		const sessionData = sessionQuery?.data;
+		if (sessionData && sessionData.status === 'active' && sessionData.currentPhase === 'exercises') {
+			const activeExercises = (sessionData.exercises || []).filter(
+				(e) => (!e.phase || e.phase === 'exercises') && !e.isDisabled
+			);
+			if (activeExercises.length > 0 && sessionData.currentExerciseIndex >= activeExercises.length) {
+				const clampedIndex = Math.max(0, activeExercises.length - 1);
+				updatePlayerStateMutation({
+					sessionId: sessionData._id,
+					currentExerciseIndex: clampedIndex,
+					currentSet: 1,
+					timerEndTime: null,
+					timerDuration: activeExercises[clampedIndex].restTime
+				});
+			}
+		}
+	});
+
 	// Live Player Handlers
 	async function handleLogSet() {
 		if (!sessionQuery?.data) return;
 		const session = sessionQuery.data;
-		const exercises = (session.exercises || []).filter((e) => !e.phase || e.phase === 'exercises');
+		const exercises = (session.exercises || []).filter(
+			(e) => (!e.phase || e.phase === 'exercises') && !e.isDisabled
+		);
 		if (exercises.length === 0) return;
 
 		const currentExercise = exercises[session.currentExerciseIndex];
+		if (!currentExercise) return;
+
 		let nextExerciseIndex = session.currentExerciseIndex;
 		let nextSet = session.currentSet;
 		let nextTimerEndTime = null;
@@ -397,16 +427,20 @@
 				nextTimerEndTime = Date.now() + currentExercise.restTime * 1000;
 			} else {
 				// Finished all sets for all exercises!
-				if (
+				const hasCooldown =
 					session.cooldownDuration !== null &&
 					session.cooldownDuration !== undefined &&
-					session.cooldownDuration > 0
-				) {
-					const cooldownExercises = (session.exercises || []).filter((e) => e.phase === 'cooldown');
+					session.cooldownDuration > 0 &&
+					!session.isCooldownDisabled;
+
+				if (hasCooldown) {
+					const cooldownExercises = (session.exercises || []).filter(
+						(e) => e.phase === 'cooldown' && !e.isDisabled
+					);
 					const cdDuration =
 						cooldownExercises.length > 0
 							? (cooldownExercises[0].duration ?? 60)
-							: session.cooldownDuration;
+							: (session.cooldownDuration ?? 60);
 
 					await updatePlayerStateMutation({
 						sessionId: session._id,
@@ -431,6 +465,182 @@
 			timerEndTime: nextTimerEndTime,
 			timerDuration: currentExercise.restTime
 		});
+	}
+
+	async function handleSkipSet() {
+		if (!sessionQuery?.data) return;
+		const session = sessionQuery.data;
+		const exercises = (session.exercises || []).filter(
+			(e) => (!e.phase || e.phase === 'exercises') && !e.isDisabled
+		);
+		if (exercises.length === 0) return;
+
+		const currentExercise = exercises[session.currentExerciseIndex];
+		if (!currentExercise) return;
+
+		let nextExerciseIndex = session.currentExerciseIndex;
+		let nextSet = session.currentSet;
+
+		if (nextSet < currentExercise.setsCount) {
+			// Advance to next set without starting any timer
+			nextSet++;
+			await updatePlayerStateMutation({
+				sessionId: session._id,
+				currentExerciseIndex: nextExerciseIndex,
+				currentSet: nextSet,
+				timerEndTime: null,
+				timerDuration: currentExercise.restTime
+			});
+		} else {
+			// Finished all sets for this exercise, move to next exercise without timer
+			if (nextExerciseIndex < exercises.length - 1) {
+				nextExerciseIndex++;
+				nextSet = 1;
+				const nextExercise = exercises[nextExerciseIndex];
+				await updatePlayerStateMutation({
+					sessionId: session._id,
+					currentExerciseIndex: nextExerciseIndex,
+					currentSet: nextSet,
+					timerEndTime: null,
+					timerDuration: nextExercise.restTime
+				});
+			} else {
+				// Finished all sets for all exercises!
+				const hasCooldown =
+					session.cooldownDuration !== null &&
+					session.cooldownDuration !== undefined &&
+					session.cooldownDuration > 0 &&
+					!session.isCooldownDisabled;
+
+				if (hasCooldown) {
+					const cooldownExercises = (session.exercises || []).filter(
+						(e) => e.phase === 'cooldown' && !e.isDisabled
+					);
+					const cdDuration =
+						cooldownExercises.length > 0
+							? (cooldownExercises[0].duration ?? 60)
+							: (session.cooldownDuration ?? 60);
+
+					await updatePlayerStateMutation({
+						sessionId: session._id,
+						currentExerciseIndex: 0,
+						currentSet: currentExercise.setsCount + 1,
+						timerEndTime: Date.now() + cdDuration * 1000,
+						timerDuration: cdDuration,
+						currentPhase: 'cooldown'
+					});
+				} else {
+					// Mark as fully done
+					await updatePlayerStateMutation({
+						sessionId: session._id,
+						currentExerciseIndex: nextExerciseIndex,
+						currentSet: currentExercise.setsCount + 1,
+						timerEndTime: null,
+						timerDuration: currentExercise.restTime
+					});
+				}
+			}
+		}
+	}
+
+	async function handleSkipExercise() {
+		if (!sessionQuery?.data) return;
+		const session = sessionQuery.data;
+		const exercises = (session.exercises || []).filter(
+			(e) => (!e.phase || e.phase === 'exercises') && !e.isDisabled
+		);
+		if (exercises.length === 0) return;
+
+		let nextExerciseIndex = session.currentExerciseIndex;
+
+		if (nextExerciseIndex < exercises.length - 1) {
+			// Skip to next exercise without starting any timer
+			nextExerciseIndex++;
+			const nextExercise = exercises[nextExerciseIndex];
+			await updatePlayerStateMutation({
+				sessionId: session._id,
+				currentExerciseIndex: nextExerciseIndex,
+				currentSet: 1,
+				timerEndTime: null,
+				timerDuration: nextExercise.restTime
+			});
+		} else {
+			// Current exercise was the last one!
+			const currentExercise = exercises[session.currentExerciseIndex];
+			const hasCooldown =
+				session.cooldownDuration !== null &&
+				session.cooldownDuration !== undefined &&
+				session.cooldownDuration > 0 &&
+				!session.isCooldownDisabled;
+
+			if (hasCooldown) {
+				const cooldownExercises = (session.exercises || []).filter(
+					(e) => e.phase === 'cooldown' && !e.isDisabled
+				);
+				const cdDuration =
+					cooldownExercises.length > 0
+						? (cooldownExercises[0].duration ?? 60)
+						: (session.cooldownDuration ?? 60);
+
+				await updatePlayerStateMutation({
+					sessionId: session._id,
+					currentExerciseIndex: 0,
+					currentSet: (currentExercise?.setsCount ?? 1) + 1,
+					timerEndTime: Date.now() + cdDuration * 1000,
+					timerDuration: cdDuration,
+					currentPhase: 'cooldown'
+				});
+			} else {
+				await updatePlayerStateMutation({
+					sessionId: session._id,
+					currentExerciseIndex: nextExerciseIndex,
+					currentSet: (currentExercise?.setsCount ?? 1) + 1,
+					timerEndTime: null,
+					timerDuration: currentExercise?.restTime ?? session.defaultRestTime
+				});
+			}
+		}
+	}
+
+	async function handleToggleExerciseDisabled(exerciseId: Id<'sessionExercises'>) {
+		if (!sessionQuery?.data) return;
+		try {
+			await toggleExerciseDisabledMutation({
+				sessionId,
+				exerciseId
+			});
+		} catch (err) {
+			console.error(err);
+			alert('Failed to toggle exercise status.');
+		}
+	}
+
+	async function handleTogglePhaseDisabled(phase: 'warmup' | 'cooldown') {
+		if (!sessionQuery?.data) return;
+		const session = sessionQuery.data;
+		try {
+			await togglePhaseDisabledMutation({
+				sessionId,
+				phase
+			});
+			if (phase === 'warmup' && !session.isWarmupDisabled && session.currentPhase === 'warmup') {
+				const activeExercises = (session.exercises || []).filter(
+					(e) => (!e.phase || e.phase === 'exercises') && !e.isDisabled
+				);
+				const firstExercise = activeExercises[0];
+				await updatePlayerStateMutation({
+					sessionId,
+					currentExerciseIndex: 0,
+					currentSet: 1,
+					timerEndTime: null,
+					timerDuration: firstExercise?.restTime ?? session.defaultRestTime,
+					currentPhase: 'exercises'
+				});
+			}
+		} catch (err) {
+			console.error(err);
+			alert(`Failed to toggle ${phase} status.`);
+		}
 	}
 
 	async function handleSkipRest() {
@@ -495,14 +705,16 @@
 	async function handleGoBack() {
 		if (!sessionQuery?.data) return;
 		const session = sessionQuery.data;
-		const exercises = (session.exercises || []).filter((e) => !e.phase || e.phase === 'exercises');
+		const exercises = (session.exercises || []).filter(
+			(e) => (!e.phase || e.phase === 'exercises') && !e.isDisabled
+		);
 		if (exercises.length === 0) return;
 
 		let prevExerciseIndex = session.currentExerciseIndex;
 		let prevSet = session.currentSet;
 
 		// If currently shown completed (setsCount + 1), clamp to setsCount
-		if (prevSet > exercises[prevExerciseIndex].setsCount) {
+		if (prevSet > exercises[prevExerciseIndex]?.setsCount) {
 			prevSet = exercises[prevExerciseIndex].setsCount;
 		} else if (prevSet > 1) {
 			prevSet--;
@@ -512,10 +724,13 @@
 		} else if (
 			session.warmupDuration !== null &&
 			session.warmupDuration !== undefined &&
-			session.warmupDuration > 0
+			session.warmupDuration > 0 &&
+			!session.isWarmupDisabled
 		) {
 			// Transition back to warmup phase
-			const warmupExercises = (session.exercises || []).filter((e) => e.phase === 'warmup');
+			const warmupExercises = (session.exercises || []).filter(
+				(e) => e.phase === 'warmup' && !e.isDisabled
+			);
 			let targetIndex = 0;
 			let duration = session.warmupDuration;
 
@@ -669,7 +884,7 @@
 	async function handleStartWarmup() {
 		if (!sessionQuery?.data) return;
 		const session = sessionQuery.data;
-		const warmupExercises = (session.exercises || []).filter((e) => e.phase === 'warmup');
+		const warmupExercises = (session.exercises || []).filter((e) => e.phase === 'warmup' && !e.isDisabled);
 
 		let duration = session.warmupDuration ?? 0;
 		if (warmupExercises.length > 0) {
@@ -688,24 +903,36 @@
 
 	async function handleStartWorkoutFromWarmup() {
 		if (!sessionQuery?.data) return;
+		const session = sessionQuery.data;
+		const activeExercises = (session.exercises || []).filter(
+			(e) => (!e.phase || e.phase === 'exercises') && !e.isDisabled
+		);
+		const firstExercise = activeExercises[0];
+
 		await updatePlayerStateMutation({
 			sessionId,
 			currentExerciseIndex: 0,
 			currentSet: 1,
 			timerEndTime: null,
-			timerDuration: sessionQuery.data.defaultRestTime,
+			timerDuration: firstExercise?.restTime ?? session.defaultRestTime,
 			currentPhase: 'exercises'
 		});
 	}
 
 	async function handleSkipWarmup() {
 		if (!sessionQuery?.data) return;
+		const session = sessionQuery.data;
+		const activeExercises = (session.exercises || []).filter(
+			(e) => (!e.phase || e.phase === 'exercises') && !e.isDisabled
+		);
+		const firstExercise = activeExercises[0];
+
 		await updatePlayerStateMutation({
 			sessionId,
 			currentExerciseIndex: 0,
 			currentSet: 1,
 			timerEndTime: null,
-			timerDuration: sessionQuery.data.defaultRestTime,
+			timerDuration: firstExercise?.restTime ?? session.defaultRestTime,
 			currentPhase: 'exercises'
 		});
 	}
@@ -721,10 +948,64 @@
 		});
 	}
 
+	async function handleSkipWarmupExercise() {
+		if (!sessionQuery?.data) return;
+		const session = sessionQuery.data;
+		const activeWarmup = (session.exercises || []).filter((e) => e.phase === 'warmup' && !e.isDisabled);
+		if (activeWarmup.length === 0) {
+			await handleSkipWarmup();
+			return;
+		}
+
+		const currentIndex = session.currentExerciseIndex;
+		if (currentIndex < activeWarmup.length - 1) {
+			const nextIndex = currentIndex + 1;
+			const nextDuration = activeWarmup[nextIndex].duration ?? 60;
+			await updatePlayerStateMutation({
+				sessionId: session._id,
+				currentExerciseIndex: nextIndex,
+				currentSet: 1,
+				timerEndTime: Date.now() + nextDuration * 1000,
+				timerDuration: nextDuration,
+				currentPhase: 'warmup'
+			});
+		} else {
+			await handleSkipWarmup();
+		}
+	}
+
+	async function handleSkipCooldownExercise() {
+		if (!sessionQuery?.data) return;
+		const session = sessionQuery.data;
+		const activeCooldown = (session.exercises || []).filter((e) => e.phase === 'cooldown' && !e.isDisabled);
+		if (activeCooldown.length === 0) {
+			await handleSkipCooldown();
+			return;
+		}
+
+		const currentIndex = session.currentExerciseIndex;
+		if (currentIndex < activeCooldown.length - 1) {
+			const nextIndex = currentIndex + 1;
+			const nextDuration = activeCooldown[nextIndex].duration ?? 60;
+			await updatePlayerStateMutation({
+				sessionId: session._id,
+				currentExerciseIndex: nextIndex,
+				currentSet: 1,
+				timerEndTime: Date.now() + nextDuration * 1000,
+				timerDuration: nextDuration,
+				currentPhase: 'cooldown'
+			});
+		} else {
+			await handleSkipCooldown();
+		}
+	}
+
 	async function handleGoBackFromCooldown() {
 		if (!sessionQuery?.data) return;
 		const session = sessionQuery.data;
-		const exercises = (session.exercises || []).filter((e) => !e.phase || e.phase === 'exercises');
+		const exercises = (session.exercises || []).filter(
+			(e) => (!e.phase || e.phase === 'exercises') && !e.isDisabled
+		);
 		if (exercises.length === 0) return;
 
 		const lastExerciseIndex = exercises.length - 1;
@@ -842,6 +1123,10 @@
 		{@const warmupExercises = allExercises.filter((e) => e.phase === 'warmup')}
 		{@const cooldownExercises = allExercises.filter((e) => e.phase === 'cooldown')}
 		{@const exercises = allExercises.filter((e) => !e.phase || e.phase === 'exercises')}
+		{@const enabledExercises = exercises.filter((e) => !e.isDisabled)}
+		{@const enabledWarmupExercises = warmupExercises.filter((e) => !e.isDisabled)}
+		{@const enabledCooldownExercises = cooldownExercises.filter((e) => !e.isDisabled)}
+		{@const currentExercise = enabledExercises[session.currentExerciseIndex]}
 
 		<div class="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start">
 			<!-- Exercises List Column -->
@@ -864,7 +1149,9 @@
 					<Card.Root
 						class="relative overflow-hidden border transition-all duration-200 rounded-xl {isWarmupActive
 							? 'border-orange-500 shadow-sm bg-orange-500/5'
-							: 'border-border/50 bg-card/40 hover:border-border'}"
+							: session.isWarmupDisabled
+								? 'border-border/30 bg-card/20 opacity-60'
+								: 'border-border/50 bg-card/40 hover:border-border'}"
 					>
 						{#if isWarmupActive}
 							<div class="absolute left-0 top-0 bottom-0 w-1 bg-orange-500"></div>
@@ -878,13 +1165,20 @@
 							<div class="flex-1 min-w-0">
 								<div class="flex items-start justify-between gap-4">
 									<div>
-										<Card.Title class="text-base font-bold tracking-tight flex items-center gap-2">
+										<Card.Title class="text-base font-bold tracking-tight flex items-center gap-2 {session.isWarmupDisabled ? 'line-through text-muted-foreground' : ''}">
 											Warm-up
 											<span
 												class="inline-flex items-center rounded-full bg-orange-500/10 px-2 py-0.5 text-[10px] font-semibold text-orange-600 ring-1 ring-orange-500/20 dark:text-orange-400 uppercase tracking-wider"
 											>
 												Warm-up
 											</span>
+											{#if session.isWarmupDisabled}
+												<span
+													class="inline-flex items-center rounded-full bg-amber-500/10 px-2 py-0.5 text-[10px] font-semibold text-amber-600 dark:text-amber-400 ring-1 ring-amber-500/20 uppercase tracking-wider"
+												>
+													Disabled
+												</span>
+											{/if}
 										</Card.Title>
 										<p class="text-xs text-muted-foreground mt-1">
 											Prepare your body for the workout.
@@ -892,6 +1186,23 @@
 									</div>
 									{#if session.status === 'active'}
 										<div class="flex items-center gap-1">
+											<Button
+												variant="ghost"
+												size="icon-sm"
+												onclick={() => handleTogglePhaseDisabled('warmup')}
+												class="rounded-full transition-colors size-7 {session.isWarmupDisabled
+													? 'text-amber-500 hover:bg-amber-500/10 hover:text-amber-600'
+													: 'text-muted-foreground hover:bg-muted hover:text-foreground'}"
+												title={session.isWarmupDisabled
+													? 'Enable warm-up for this session'
+													: 'Disable warm-up for this session'}
+											>
+												{#if session.isWarmupDisabled}
+													<EyeOff class="size-3.5" />
+												{:else}
+													<Eye class="size-3.5" />
+												{/if}
+											</Button>
 											<Button
 												variant="ghost"
 												size="icon-sm"
@@ -930,14 +1241,30 @@
 						<div class="ml-4 pl-4 border-l border-orange-500/20 space-y-2 mt-2">
 							{#each warmupExercises as exercise, wuIndex (exercise._id)}
 								<div
-									class="flex items-center justify-between p-3 bg-muted/20 border border-border/40 rounded-xl text-sm"
+									class="flex items-center justify-between p-3 border rounded-xl text-sm transition-all {exercise.isDisabled ? 'bg-muted/10 border-border/20 opacity-60' : 'bg-muted/20 border-border/40'}"
 								>
 									<div class="flex items-center gap-2">
 										<span class="text-xs font-mono font-bold text-orange-500">{wuIndex + 1}</span>
-										<span class="font-semibold">{exercise.name}</span>
+										<span class="font-semibold {exercise.isDisabled ? 'line-through text-muted-foreground' : ''}">{exercise.name}</span>
 										<span class="text-xs text-muted-foreground">({exercise.duration}s)</span>
+										{#if exercise.isDisabled}
+											<span class="text-[10px] text-amber-600 dark:text-amber-400 font-semibold uppercase tracking-wider bg-amber-500/10 px-1.5 py-0.5 rounded-full">Disabled</span>
+										{/if}
 									</div>
 									<div class="flex items-center gap-1">
+										<Button
+											variant="ghost"
+											size="icon-xs"
+											onclick={() => handleToggleExerciseDisabled(exercise._id)}
+											class="rounded-full size-6 {exercise.isDisabled ? 'text-amber-500 hover:bg-amber-500/10' : 'text-muted-foreground hover:bg-muted hover:text-foreground'}"
+											title={exercise.isDisabled ? 'Enable warmup exercise for this session' : 'Disable warmup exercise for this session'}
+										>
+											{#if exercise.isDisabled}
+												<EyeOff class="size-3" />
+											{:else}
+												<Eye class="size-3" />
+											{/if}
+										</Button>
 										<Button
 											variant="ghost"
 											size="icon-xs"
@@ -1021,11 +1348,15 @@
 							{@const isActive =
 								session.status === 'active' &&
 								currentPhase === 'exercises' &&
-								index === session.currentExerciseIndex}
+								!exercise.isDisabled &&
+								currentExercise &&
+								exercise._id === currentExercise._id}
 							<Card.Root
 								class="relative overflow-hidden border transition-all duration-200 rounded-xl {isActive
 									? 'border-primary shadow-sm bg-primary/5'
-									: 'border-border/50 bg-card/40 hover:border-border'}"
+									: exercise.isDisabled
+										? 'border-border/30 bg-card/20 opacity-60'
+										: 'border-border/50 bg-card/40 hover:border-border'}"
 							>
 								<!-- Left/Side accent indicator for active exercise -->
 								{#if isActive}
@@ -1075,7 +1406,9 @@
 										<div class="flex items-start justify-between gap-4">
 											<div>
 												<Card.Title
-													class="text-base font-bold tracking-tight flex items-center gap-2"
+													class="text-base font-bold tracking-tight flex items-center gap-2 {exercise.isDisabled
+														? 'line-through text-muted-foreground'
+														: ''}"
 												>
 													{exercise.name}
 													<span
@@ -1083,11 +1416,35 @@
 													>
 														Exercise
 													</span>
+													{#if exercise.isDisabled}
+														<span
+															class="inline-flex items-center rounded-full bg-amber-500/10 px-2 py-0.5 text-[10px] font-semibold text-amber-600 dark:text-amber-400 ring-1 ring-amber-500/20 uppercase tracking-wider"
+														>
+															Disabled
+														</span>
+													{/if}
 												</Card.Title>
 											</div>
 
 											<!-- Edit/Delete Action Controls -->
 											<div class="flex items-center gap-1">
+												<Button
+													variant="ghost"
+													size="icon-sm"
+													onclick={() => handleToggleExerciseDisabled(exercise._id)}
+													class="rounded-full transition-colors size-7 {exercise.isDisabled
+														? 'text-amber-500 hover:bg-amber-500/10 hover:text-amber-600'
+														: 'text-muted-foreground hover:bg-muted hover:text-foreground'}"
+													title={exercise.isDisabled
+														? 'Enable exercise for this session'
+														: 'Disable exercise for this session'}
+												>
+													{#if exercise.isDisabled}
+														<EyeOff class="size-3.5" />
+													{:else}
+														<Eye class="size-3.5" />
+													{/if}
+												</Button>
 												<Button
 													variant="ghost"
 													size="icon-sm"
@@ -1142,7 +1499,9 @@
 					<Card.Root
 						class="relative overflow-hidden border transition-all duration-200 rounded-xl {isCooldownActive
 							? 'border-cyan-500 shadow-sm bg-cyan-500/5'
-							: 'border-border/50 bg-card/40 hover:border-border'}"
+							: session.isCooldownDisabled
+								? 'border-border/30 bg-card/20 opacity-60'
+								: 'border-border/50 bg-card/40 hover:border-border'}"
 					>
 						{#if isCooldownActive}
 							<div class="absolute left-0 top-0 bottom-0 w-1 bg-cyan-500"></div>
@@ -1156,13 +1515,20 @@
 							<div class="flex-1 min-w-0">
 								<div class="flex items-start justify-between gap-4">
 									<div>
-										<Card.Title class="text-base font-bold tracking-tight flex items-center gap-2">
+										<Card.Title class="text-base font-bold tracking-tight flex items-center gap-2 {session.isCooldownDisabled ? 'line-through text-muted-foreground' : ''}">
 											Cool-down
 											<span
 												class="inline-flex items-center rounded-full bg-cyan-500/10 px-2 py-0.5 text-[10px] font-semibold text-cyan-600 ring-1 ring-cyan-500/20 dark:text-cyan-400 uppercase tracking-wider"
 											>
 												Cool-down
 											</span>
+											{#if session.isCooldownDisabled}
+												<span
+													class="inline-flex items-center rounded-full bg-amber-500/10 px-2 py-0.5 text-[10px] font-semibold text-amber-600 dark:text-amber-400 ring-1 ring-amber-500/20 uppercase tracking-wider"
+												>
+													Disabled
+												</span>
+											{/if}
 										</Card.Title>
 										<p class="text-xs text-muted-foreground mt-1">
 											Recover and stretch after your exercises.
@@ -1170,6 +1536,23 @@
 									</div>
 									{#if session.status === 'active'}
 										<div class="flex items-center gap-1">
+											<Button
+												variant="ghost"
+												size="icon-sm"
+												onclick={() => handleTogglePhaseDisabled('cooldown')}
+												class="rounded-full transition-colors size-7 {session.isCooldownDisabled
+													? 'text-amber-500 hover:bg-amber-500/10 hover:text-amber-600'
+													: 'text-muted-foreground hover:bg-muted hover:text-foreground'}"
+												title={session.isCooldownDisabled
+													? 'Enable cool-down for this session'
+													: 'Disable cool-down for this session'}
+											>
+												{#if session.isCooldownDisabled}
+													<EyeOff class="size-3.5" />
+												{:else}
+													<Eye class="size-3.5" />
+												{/if}
+											</Button>
 											<Button
 												variant="ghost"
 												size="icon-sm"
@@ -1209,14 +1592,30 @@
 						<div class="ml-4 pl-4 border-l border-cyan-500/20 space-y-2 mt-2">
 							{#each cooldownExercises as exercise, cdIndex (exercise._id)}
 								<div
-									class="flex items-center justify-between p-3 bg-muted/20 border border-border/40 rounded-xl text-sm"
+									class="flex items-center justify-between p-3 border rounded-xl text-sm transition-all {exercise.isDisabled ? 'bg-muted/10 border-border/20 opacity-60' : 'bg-muted/20 border-border/40'}"
 								>
 									<div class="flex items-center gap-2">
 										<span class="text-xs font-mono font-bold text-cyan-500">{cdIndex + 1}</span>
-										<span class="font-semibold">{exercise.name}</span>
+										<span class="font-semibold {exercise.isDisabled ? 'line-through text-muted-foreground' : ''}">{exercise.name}</span>
 										<span class="text-xs text-muted-foreground">({exercise.duration}s)</span>
+										{#if exercise.isDisabled}
+											<span class="text-[10px] text-amber-600 dark:text-amber-400 font-semibold uppercase tracking-wider bg-amber-500/10 px-1.5 py-0.5 rounded-full">Disabled</span>
+										{/if}
 									</div>
 									<div class="flex items-center gap-1">
+										<Button
+											variant="ghost"
+											size="icon-xs"
+											onclick={() => handleToggleExerciseDisabled(exercise._id)}
+											class="rounded-full size-6 {exercise.isDisabled ? 'text-amber-500 hover:bg-amber-500/10' : 'text-muted-foreground hover:bg-muted hover:text-foreground'}"
+											title={exercise.isDisabled ? 'Enable cooldown exercise for this session' : 'Disable cooldown exercise for this session'}
+										>
+											{#if exercise.isDisabled}
+												<EyeOff class="size-3" />
+											{:else}
+												<Eye class="size-3" />
+											{/if}
+										</Button>
 										<Button
 											variant="ghost"
 											size="icon-xs"
@@ -1279,8 +1678,21 @@
 							</div>
 						</Card.Content>
 					</Card.Root>
+				{:else if enabledExercises.length === 0}
+					<Card.Root class="border-dashed border-border/60 bg-muted/10 text-center p-8 rounded-xl">
+						<Card.Content class="space-y-4">
+							<div class="size-12 rounded-full bg-amber-500/10 text-amber-500 flex items-center justify-center mx-auto">
+								<EyeOff class="size-6" />
+							</div>
+							<div class="space-y-1">
+								<h3 class="font-bold text-sm">All Exercises Disabled</h3>
+								<p class="text-xs text-muted-foreground max-w-xs mx-auto">
+									All exercises are currently disabled for this session. Enable at least one exercise in the list to continue your workout.
+								</p>
+							</div>
+						</Card.Content>
+					</Card.Root>
 				{:else}
-					{@const currentExercise = exercises[session.currentExerciseIndex]}
 					{@const isWorkoutComplete =
 						currentExercise && session.currentSet > currentExercise.setsCount}
 
@@ -1361,8 +1773,8 @@
 										>
 											Warm-up Phase
 										</div>
-										{#if warmupExercises.length > 0 && session.currentExerciseIndex < warmupExercises.length}
-											{@const activeExercise = warmupExercises[session.currentExerciseIndex]}
+										{#if enabledWarmupExercises.length > 0 && session.currentExerciseIndex < enabledWarmupExercises.length}
+											{@const activeExercise = enabledWarmupExercises[session.currentExerciseIndex]}
 											<h4 class="text-lg font-bold tracking-tight leading-tight">
 												{activeExercise.name}
 											</h4>
@@ -1373,7 +1785,7 @@
 											{:else}
 												<p class="text-xs text-muted-foreground mt-1 leading-relaxed">
 													Perform this warm-up movement. (Exercise {session.currentExerciseIndex +
-														1} of {warmupExercises.length})
+														1} of {enabledWarmupExercises.length})
 												</p>
 											{/if}
 										{:else}
@@ -1381,7 +1793,7 @@
 												Prepare Your Body
 											</h4>
 											<p class="text-xs text-muted-foreground mt-1 leading-relaxed">
-												{warmupExercises.length > 0
+												{enabledWarmupExercises.length > 0
 													? 'General warm-up / rest period.'
 													: 'Increase body temperature and prepare your muscles.'}
 											</p>
@@ -1433,6 +1845,16 @@
 														<Square class="size-3 text-amber-500 fill-amber-500" /> Pause
 													{/if}
 												</Button>
+												{#if enabledWarmupExercises.length > 1 && session.currentExerciseIndex < enabledWarmupExercises.length - 1}
+													<Button
+														variant="outline"
+														size="xs"
+														onclick={handleSkipWarmupExercise}
+														class="rounded-full text-[10px] h-7 px-3"
+													>
+														Next Warm-up
+													</Button>
+												{/if}
 												<Button
 													variant="ghost"
 													size="xs"
@@ -1473,6 +1895,16 @@
 												>
 													<Play class="mr-2 size-5 fill-white" /> Start Warm-up
 												</Button>
+												{#if enabledWarmupExercises.length > 1 && session.currentExerciseIndex < enabledWarmupExercises.length - 1}
+													<Button
+														variant="outline"
+														size="xs"
+														onclick={handleSkipWarmupExercise}
+														class="rounded-full text-[10px] h-7 px-3"
+													>
+														Next Warm-up
+													</Button>
+												{/if}
 												<Button
 													variant="ghost"
 													size="xs"
@@ -1519,8 +1951,8 @@
 										>
 											Cool-down Phase
 										</div>
-										{#if cooldownExercises.length > 0 && session.currentExerciseIndex < cooldownExercises.length}
-											{@const activeExercise = cooldownExercises[session.currentExerciseIndex]}
+										{#if enabledCooldownExercises.length > 0 && session.currentExerciseIndex < enabledCooldownExercises.length}
+											{@const activeExercise = enabledCooldownExercises[session.currentExerciseIndex]}
 											<h4 class="text-lg font-bold tracking-tight leading-tight">
 												{activeExercise.name}
 											</h4>
@@ -1531,7 +1963,7 @@
 											{:else}
 												<p class="text-xs text-muted-foreground mt-1 leading-relaxed">
 													Perform this cool-down stretch. (Stretch {session.currentExerciseIndex +
-														1} of {cooldownExercises.length})
+														1} of {enabledCooldownExercises.length})
 												</p>
 											{/if}
 										{:else}
@@ -1539,7 +1971,7 @@
 												Relax and Recover
 											</h4>
 											<p class="text-xs text-muted-foreground mt-1 leading-relaxed">
-												{cooldownExercises.length > 0
+												{enabledCooldownExercises.length > 0
 													? 'General cool-down / recovery period.'
 													: 'Slow down your heart rate and stretch.'}
 											</p>
@@ -1591,6 +2023,16 @@
 														<Square class="size-3 text-amber-500 fill-amber-500" /> Pause
 													{/if}
 												</Button>
+												{#if enabledCooldownExercises.length > 1 && session.currentExerciseIndex < enabledCooldownExercises.length - 1}
+													<Button
+														variant="outline"
+														size="xs"
+														onclick={handleSkipCooldownExercise}
+														class="rounded-full text-[10px] h-7 px-3"
+													>
+														Next Stretch
+													</Button>
+												{/if}
 												<Button
 													variant="ghost"
 													size="xs"
@@ -1663,13 +2105,13 @@
 										</Button>
 									</div>
 								</div>
-							{:else}
+							{:else if currentExercise}
 								<!-- Active Session Tracking Mode -->
 								<div class="space-y-6">
 									<!-- Tracker Exercise Details -->
 									<div class="space-y-1">
 										<div class="text-[10px] uppercase font-bold tracking-wider text-primary">
-											Exercise {session.currentExerciseIndex + 1} of {exercises.length}
+											Exercise {session.currentExerciseIndex + 1} of {enabledExercises.length}
 										</div>
 										<h4 class="text-lg font-bold tracking-tight leading-tight">
 											{currentExercise.name}
@@ -1776,7 +2218,7 @@
 												size="sm"
 												disabled={session.currentExerciseIndex === 0 &&
 													session.currentSet === 1 &&
-													!(session.warmupDuration && session.warmupDuration > 0)}
+													!(session.warmupDuration && session.warmupDuration > 0 && !session.isWarmupDisabled)}
 												onclick={handleGoBack}
 												class="rounded-full text-xs font-semibold h-10 disabled:opacity-30"
 											>
@@ -1795,13 +2237,22 @@
 												<Button
 													variant="secondary"
 													size="sm"
-													onclick={handleLogSet}
+													onclick={handleSkipSet}
 													class="rounded-full text-xs font-semibold h-10"
 												>
 													Skip Set
 												</Button>
 											{/if}
 										</div>
+
+										<Button
+											variant="ghost"
+											size="sm"
+											onclick={handleSkipExercise}
+											class="w-full rounded-full text-xs font-semibold h-9 text-muted-foreground hover:text-foreground hover:bg-muted/50 flex items-center justify-center gap-1.5"
+										>
+											<SkipForward class="size-3.5" /> Skip Exercise
+										</Button>
 									</div>
 								</div>
 							{/if}

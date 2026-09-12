@@ -25,6 +25,26 @@
 	const updateMutation = useMutation(api.sessions.update);
 	const deleteMutation = useMutation(api.sessions.deleteSession);
 
+	const sortedSessions = $derived.by(() => {
+		if (!sessionsQuery.data) return [];
+		return [...sessionsQuery.data].sort((a, b) => {
+			const aIsActive = a.status === 'active';
+			const bIsActive = b.status === 'active';
+
+			if (aIsActive && !bIsActive) return -1;
+			if (!aIsActive && bIsActive) return 1;
+
+			if (aIsActive && bIsActive) {
+				return b.startedAt - a.startedAt;
+			}
+
+			// For completed sessions: sort by finished timestamp (endedAt or timerEndTime) descending
+			const aFinished = a.endedAt ?? a.timerEndTime ?? a.startedAt;
+			const bFinished = b.endedAt ?? b.timerEndTime ?? b.startedAt;
+			return bFinished - aFinished;
+		});
+	});
+
 	// Dialog & Form State
 	let isDialogOpen = $state(false);
 	let editingSession = $state<SessionWithExercises | null>(null);
@@ -236,7 +256,7 @@
 			{:else if sessionsQuery.data}
 				<!-- Workout Sessions Grid -->
 				<Item.Group class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 w-full">
-					{#each sessionsQuery.data as session (session._id)}
+					{#each sortedSessions as session (session._id)}
 						<ContextMenu.Root>
 							<ContextMenu.Trigger class="w-full h-full">
 								<Item.Root
@@ -253,8 +273,8 @@
 												{session.name}
 											</Item.Title>
 											<p class="text-[10px] text-muted-foreground">
-												{#if session.status === 'completed' && (session.timerEndTime || session.endedAt)}
-													Finished {getRelativeTime((session.timerEndTime || session.endedAt) as number)}
+												{#if session.status === 'completed' && (session.endedAt ?? session.timerEndTime)}
+													Finished {getRelativeTime((session.endedAt ?? session.timerEndTime) as number)}
 												{:else}
 													Started {formatDate(session.startedAt)}
 												{/if}
